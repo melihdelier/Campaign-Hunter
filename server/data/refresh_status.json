@@ -1,0 +1,97 @@
+{
+  "state": "partial_error",
+  "stage": "done",
+  "last_started_at": "2026-09-24T14:05:05.685968+00:00",
+  "last_finished_at": "2026-09-24T14:06:31.889843+00:00",
+  "source_count": 10,
+  "campaign_count": 196,
+  "candidate_count": 369,
+  "fetched_count": 369,
+  "changed_count": 196,
+  "error_count": 7,
+  "source_reports": [
+    {
+      "key": "qnb_ms",
+      "bank": "QNB",
+      "candidate_count": 15,
+      "kept_count": 13,
+      "errors": []
+    },
+    {
+      "key": "qnb_private",
+      "bank": "QNB",
+      "candidate_count": 12,
+      "kept_count": 11,
+      "errors": [
+        "sitemap https://www.qnb.com.tr/sitemap.xml: HTTPError: HTTP Error 404: Not Found"
+      ]
+    },
+    {
+      "key": "qnb_card",
+      "bank": "QNB",
+      "candidate_count": 12,
+      "kept_count": 8,
+      "errors": [
+        "sitemap https://www.qnbcard.com.tr/sitemap.xml: HTTPError: HTTP Error 404: Not Found"
+      ]
+    },
+    {
+      "key": "wings",
+      "bank": "Akbank",
+      "candidate_count": 8,
+      "kept_count": 1,
+      "errors": [
+        "sitemap https://www.wingscard.com.tr/sitemap.xml: HTTPError: HTTP Error 404: Not Found"
+      ]
+    },
+    {
+      "key": "axess_general",
+      "bank": "Akbank",
+      "candidate_count": 37,
+      "kept_count": 6,
+      "errors": []
+    },
+    {
+      "key": "maximiles",
+      "bank": "İş Bankası",
+      "candidate_count": 50,
+      "kept_count": 31,
+      "errors": [
+        "category-listing https://www.maximiles.com.tr/kampanyalar/mobilya-dekorasyon: HTTPError: HTTP Error 404: Not Found"
+      ]
+    },
+    {
+      "key": "world",
+      "bank": "Yapı Kredi",
+      "candidate_count": 45,
+      "kept_count": 44,
+      "errors": [
+        "detail https://www.worldcard.com.tr/kampanyalar/worlde-ozel-peugeot-yetkili-servislerde-pesin-fiyatina-6-taksit-firsati: TimeoutError: The read operation timed out"
+      ]
+    },
+    {
+      "key": "crystal_special",
+      "bank": "Yapı Kredi",
+      "candidate_count": 1,
+      "kept_count": 1,
+      "errors": []
+    },
+    {
+      "key": "teb",
+      "bank": "TEB",
+      "candidate_count": 47,
+      "kept_count": 43,
+      "errors": [
+        "detail https://www.teb.com.tr/kart-dunyasi-otel-restoran-indirimi: ConnectionResetError: [WinError 10054] An existing connection was forcibly closed by the remote host",
+        "detail https://www.teb.com.tr/kart-dunyasi-bademli-indirim: ConnectionResetError: [WinError 10054] An existing connection was forcibly closed by the remote host"
+      ]
+    },
+    {
+      "key": "teb_general",
+      "bank": "TEB",
+      "candidate_count": 142,
+      "kept_count": 45,
+      "errors": []
+    }
+  ]
+}

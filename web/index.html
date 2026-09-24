@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#111827" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Kampanya Avcısı" />
+  <link rel="apple-touch-icon" href="./icons/icon-192.png" />
+  <title>Banka Kampanya Avcısı</title>
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div><div class="eyebrow">Kişisel karar destek</div><h1>Banka Kampanya Avcısı</h1></div>
+    <div class="topbar-actions"><span id="networkBadge" class="network-badge">Çevrimiçi</span><button id="installPwaBtn" class="secondary install-btn" hidden>Telefona kur</button><div class="privacy">Kart numarası tutulmaz · <span id="runtimeVersion">v1.2.0-pwa</span></div></div>
+  </header>
+
+  <nav class="nav">
+    <button class="nav-btn active" data-view="dashboard">Özet</button>
+    <button class="nav-btn" data-view="campaigns">Kampanyalar</button>
+    <button class="nav-btn" data-view="recommend">Hangi Kart?</button>
+    <button class="nav-btn" data-view="privateCampaign">Özel Kampanya Ekle</button>
+    <button class="nav-btn" data-view="settings">Ayarlar</button>
+  </nav>
+
+  <main>
+    <section id="dashboard" class="view active">
+      <div class="notice live-notice"><strong>Canlı katalog:</strong> Resmi banka/kart siteleri 08:00 ve 18:00’de taranır. “Şimdi yenile” ile anlık kontrol yapabilirsin. Otomatik çözümlenemeyen kampanyalar kaybolmaz; resmi detay bağlantısıyla bilgi amaçlı gösterilir.</div>
+      <div id="catalogHealth" class="notice catalog-health">Canlı katalog durumu alınıyor…</div>
+      <div class="stats">
+        <div class="stat"><span id="cardCount">0</span><small>Aktif kart</small></div>
+        <div class="stat"><span id="campaignCount">0</span><small>Kampanya</small></div>
+        <div class="stat"><span id="staleCount">0</span><small>Eski limit</small></div>
+        <div class="stat"><span id="unknownCount">0</span><small>Limit bilinmiyor</small></div>
+      </div>
+      <h2>Kartlarım</h2>
+      <div id="cardsGrid" class="cards-grid"></div>
+    </section>
+
+    <section id="campaigns" class="view">
+      <div class="section-head"><div><h2>Kampanya kataloğu</h2><p>Kategoriyi seç; aktif kampanyalar kullandığın kartlara göre gruplanır. Bir kampanyaya tıklayınca işyeri/istasyon kapsamı ve tüm bilinen koşulları açılır.</p></div></div>
+      <div class="campaign-browser-toolbar form-card compact-form">
+        <label>Kategori
+          <select id="campaignBrowseCategory"></select>
+        </label>
+        <label>Kampanya / işyeri ara
+          <input id="campaignBrowseSearch" placeholder="Örn. Shell, Opet, restoran, Amazon" />
+        </label>
+        <label class="check-label"><input id="campaignBrowseOnlyComplete" type="checkbox" /> Yalnız detayları tam çözülenleri göster</label>
+      </div>
+      <div id="campaignBrowseSummary" class="catalog-status"></div>
+      <div class="campaign-browser-layout">
+        <div id="campaignList" class="campaign-groups"></div>
+        <aside id="campaignDetail" class="campaign-detail-panel"><div class="campaign-detail-empty">Detayını görmek için listeden bir kampanya seç.</div></aside>
+      </div>
+    </section>
+
+    <section id="recommend" class="view">
+      <h2>Hangi kart?</h2>
+      <p class="muted">Sistem yalnızca bildiği kampanyalara ve güncellediğin kalan limitlere göre hesap yapar.</p>
+      <form id="recommendForm" class="form-card">
+        <label>İşyeri / açıklama<input id="merchant" placeholder="Örn. Migros, restoran, otel" /></label>
+        <label>Kategori
+          <select id="category">
+            <option value="auto" selected>Otomatik belirle</option><option value="restoran">Restoran</option><option value="market">Market</option><option value="giyim">Giyim</option>
+            <option value="otel">Otel</option><option value="seyahat">Seyahat / Uçak</option><option value="akaryakit">Akaryakıt</option><option value="e-ticaret">E-ticaret</option>
+            <option value="egitim">Eğitim / Kırtasiye</option><option value="saglik">Sağlık</option><option value="sigorta">Sigorta / BES</option><option value="otomotiv">Otomotiv / Servis</option>
+            <option value="ulasim">Toplu taşıma / Ulaşım</option><option value="dijital">Dijital platform</option><option value="elektronik">Elektronik / Beyaz eşya</option><option value="ev">Mobilya / Yapı market</option>
+            <option value="eglence">Sinema / Etkinlik</option><option value="otopark">Otopark</option><option value="all">Diğer</option>
+          </select>
+        </label>
+        <label>İşlem yeri
+          <select id="locationScope"><option value="domestic">Yurt içi</option><option value="international">Yurt dışı</option></select>
+        </label>
+        <label>Ödeme kanalı
+          <select id="paymentChannel"><option value="physical">Fiziki POS / mağaza</option><option value="online">İnternet / uygulama</option></select>
+        </label>
+        <label>Tutar (TL)<input id="amount" inputmode="decimal" placeholder="15000" required /></label>
+        <div class="button-row">
+          <button type="submit" class="primary">Kartları karşılaştır</button>
+          <button type="button" id="downloadQueryLogBtn" class="secondary">Tanı logunu indir</button>
+        </div>
+        <p class="muted">Bir sonuç hatalı görünürse “Tanı logunu indir” ile son sorgunun hangi kampanyaları neden kabul/reddettiğini JSON olarak alabilirsin. Kart numarası veya banka giriş bilgisi loglanmaz.</p>
+      </form>
+      <div id="recommendResults" class="results"></div>
+    </section>
+
+
+    <section id="privateCampaign" class="view">
+      <h2>Özel kampanya ekle</h2>
+      <p class="muted">Mobil uygulamada yalnız sana görünen kampanya metnini buraya yapıştır. Kart numarası veya banka giriş bilgisi girme.</p>
+      <form id="privateCampaignForm" class="form-card">
+        <label>Banka / kart
+          <select id="privateCard">
+            <option value="qnb-ms-private|QNB">QNB Miles&Smiles Private</option>
+            <option value="akbank-wings-elite|Akbank">Akbank Wings Elite</option>
+            <option value="akbank-wings-black|Akbank">Akbank Wings Black</option>
+            <option value="is-maximiles-black|İş Bankası">İş Bankası Maximiles Black</option>
+            <option value="ykb-crystal|Yapı Kredi">Yapı Kredi Crystal</option>
+            <option value="teb-infinite|TEB">TEB Özel Infinite</option>
+          </select>
+        </label>
+        <label>Kampanya başlığı (opsiyonel)<input id="privateTitle" placeholder="Örn. Bana özel market kampanyası" /></label>
+        <label>Kampanya detay metni<textarea id="privateText" rows="10" placeholder="Banka uygulamasındaki kampanya koşullarını buraya yapıştır..." required></textarea></label>
+        <button type="submit" class="primary">Metni analiz et ve ekle</button>
+        <div id="privateCampaignStatus" class="muted"></div>
+        <div id="privateDuplicateReview"></div>
+      </form>
+    </section>
+
+    <section id="settings" class="view">
+      <h2>Ayarlar ve yedek</h2>
+      <div class="settings-card">
+        <h3>Kazanç profili</h3>
+        <label>THY Miles&Smiles statüsü<select id="thyStatus"><option value="classic">Classic</option><option value="classic_plus">Classic Plus</option><option value="elite">Elite</option><option value="elite_plus">Elite Plus</option></select></label>
+        <label>QNB müşteri segmenti<select id="qnbSegment"><option value="other">Diğer / QNB First altı</option><option value="first">QNB First</option><option value="first_plus">QNB First Plus</option><option value="private" selected>QNB Private</option></select></label>
+        <label>Akbank Wings varlık programı<select id="wingsTier"><option value="standard">Classic / 1 milyon TL altı</option><option value="black">Black / 1–2 milyon TL</option><option value="black_plus" selected>Black Plus / 2 milyon TL+</option></select></label>
+        <label>Maximiles Black varlık bandı<select id="maximilesBand"><option value="under_1m">1 milyon TL altı</option><option value="1m_4m">1–4 milyon TL</option><option value="4m_8m" selected>4–8 milyon TL</option><option value="8m_plus">8 milyon TL+</option></select></label>
+        <label>Yapı Kredi Crystal varlık bandı<select id="crystalBand"><option value="under_1m" selected>1 milyon TL altı</option><option value="1m_6m">1–6 milyon TL</option><option value="6m_10m">6–10 milyon TL</option><option value="10m_plus">10 milyon TL+</option></select></label>
+        <label>Yapı Kredi Crystal kart tipi<select id="crystalCardType"><option value="crystal" selected>Crystal</option><option value="metal_crystal">Metal Crystal</option></select></label>
+        <label>TEB Infinite paket seviyesi<select id="tebTier"><option value="standard">Standart / 1 milyon TL'ye kadar</option><option value="plus">Plus / 1–5 milyon TL</option><option value="premium">Premium / 5–10 milyon TL</option><option value="ultra" selected>Ultra / 10 milyon TL+</option></select></label>
+        <p class="muted">Tüm segmentler değiştirilebilir. Seçim değiştiğinde kart profilin, kampanya uygunluğu ve segment bazlı limitler yeniden hesaplanır; daha önce elle doğrulanmış kalan limitler yanlış kullanılmasın diye ilgili kampanyalarda yeniden doğrulama istenir.</p>
+      </div>
+      <div class="settings-card">
+        <label>Limit bilgisini kaç gün sonra “eski” sayalım?<input id="staleDays" type="number" min="0" max="30" /></label>
+        <p class="muted">Bu sadece uyarı üretir; kullanıcı doğrulaması her zaman önceliklidir.</p>
+      </div>
+
+      <div class="settings-card cloud-card">
+        <h3>Bulut ve cihazlar arası senkron</h3>
+        <p class="muted">Supabase bağlandığında segmentlerin, kalan limitlerin, katılım durumların ve özel kampanyaların cihazlar arasında taşınabilir. Kart numarası/CVV/banka şifresi tutulmaz.</p>
+        <div id="cloudConfigStatus" class="catalog-status">Bulut bağlantısı kontrol ediliyor…</div>
+        <div class="cloud-auth-grid">
+          <label>E-posta<input id="cloudEmail" type="email" autocomplete="email" placeholder="eposta@ornek.com" /></label>
+          <label>Şifre<input id="cloudPassword" type="password" autocomplete="current-password" placeholder="En az 8 karakter" /></label>
+        </div>
+        <div class="button-row">
+          <button id="cloudSignInBtn" type="button" class="primary">Giriş yap</button>
+          <button id="cloudSignUpBtn" type="button" class="secondary">Hesap oluştur</button>
+          <button id="cloudSignOutBtn" type="button" class="secondary" hidden>Çıkış</button>
+        </div>
+        <div class="button-row cloud-sync-actions">
+          <button id="cloudUploadBtn" type="button" class="secondary" disabled>Bu cihazı buluta gönder</button>
+          <button id="cloudDownloadBtn" type="button" class="secondary" disabled>Buluttan bu cihaza al</button>
+        </div>
+        <p id="cloudSyncStatus" class="muted"></p>
+      </div>
+      <div class="settings-card pwa-card">
+        <h3>Mobil uygulama</h3>
+        <p id="pwaInstallHint" class="muted">Android/iPhone'da HTTPS üzerinden açıldığında ana ekrana uygulama olarak kurulabilir.</p>
+        <button id="settingsInstallPwaBtn" type="button" class="primary" hidden>Uygulamayı telefona kur</button>
+      </div>
+      <div class="settings-card refresh-card">
+        <h3>Kampanya taraması</h3>
+        <p><strong>Otomatik plan:</strong> her gün 08:00 ve 18:00 (Europe/Istanbul)</p>
+        <p class="muted">Manuel yenileme de aynı detay/işyeri kontrol hattını çalıştırır. Uygulama açıkken yerel servis üzerinden çalışır; Windows zamanlanmış görevini kurarsan uygulama kapalıyken de 08:00 ve 18:00 taraması yapılabilir.</p>
+        <div class="button-row">
+          <button id="refreshCampaignsBtn" class="primary">Şimdi yenile</button>
+          <span id="refreshStatus" class="muted">Henüz durum alınmadı.</span>
+        </div>
+      </div>
+      <div class="settings-card">
+        <h3>Yerel veri</h3>
+        <p class="muted">Kampanya kataloğu yerel servis tarafından tutulur; kişisel limit/katılım tercihleri bu cihazın tarayıcısında tutulur. Supabase şeması pakette hazırdır; bulut hesabı bağlandığında aynı yapı merkezi hale getirilebilir.</p>
+        <div class="button-row">
+          <button id="exportBtn" class="secondary">Yedeği dışa aktar</button>
+          <label class="file-button secondary">Yedek içe aktar<input id="importFile" type="file" accept="application/json" hidden /></label>
+          <button id="resetBtn" class="danger-button">Başlangıç verisine dön</button>
+        </div>
+      </div>
+      <div class="settings-card security">
+        <h3>Güvenlik sınırı</h3>
+        <p>Uygulamada kart numarası, CVV, son kullanma tarihi, internet bankacılığı şifresi veya banka oturum bilgisi için hiçbir alan yoktur.</p>
+      </div>
+    </section>
+  </main>
+
+  <div id="pwaToast" class="pwa-toast" hidden></div>
+  <script src="./runtime-config.js"></script>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

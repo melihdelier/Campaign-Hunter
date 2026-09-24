@@ -1,0 +1,1 @@
+{"type":"module","scripts":{"test":"node test-engine.mjs && node test-loyalty.mjs && node test-campaign-browser.mjs"}}

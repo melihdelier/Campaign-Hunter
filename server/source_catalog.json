@@ -1,0 +1,395 @@
+[
+  {
+    "key": "qnb_ms",
+    "bank": "QNB",
+    "card_products": [
+      "qnb-ms-private"
+    ],
+    "domains": [
+      "milesandsmilesqnb.com.tr"
+    ],
+    "listing_urls": [
+      "https://milesandsmilesqnb.com.tr/kampanyalar"
+    ],
+    "sitemap_urls": [
+      "https://milesandsmilesqnb.com.tr/sitemap.xml"
+    ],
+    "include_url_substrings": [
+      "/kampanyalar/"
+    ],
+    "fallback_urls": [
+      "https://milesandsmilesqnb.com.tr/kampanyalar/okul-alisverislerinize-2500-mil-hediye-1970",
+      "https://milesandsmilesqnb.com.tr/kampanyalar/market-harcamalariniza-1000e-varan-mil-hediye-1976",
+      "https://milesandsmilesqnb.com.tr/kampanyalar/duty-free-harcamaniza-15-indirim-1634",
+      "https://milesandsmilesqnb.com.tr/kampanyalar/hepsiburadada-pesin-fiyatina-3-taksit-1157",
+      "https://milesandsmilesqnb.com.tr/kampanyalar/trendyolda-pesin-fiyatina-3-taksit-1648",
+      "https://milesandsmilesqnb.com.tr/kampanyalar/amazonda-pesin-fiyatina-6-taksit-1936",
+      "https://milesandsmilesqnb.com.tr/kampanyalar/ajette-6ya-varan-taksit-1616",
+      "https://milesandsmilesqnb.com.tr/kampanyalar/istanbul-havalimani-hizli-gecis-1870"
+    ]
+  },
+  {
+    "key": "qnb_private",
+    "bank": "QNB",
+    "card_products": [
+      "qnb-ms-private"
+    ],
+    "domains": [
+      "www.qnb.com.tr",
+      "qnb.com.tr"
+    ],
+    "listing_urls": [
+      "https://www.qnb.com.tr/private/private-ayricaliklar",
+      "https://www.qnb.com.tr/private/private-kredi-kartlari/milesandsmiles-private"
+    ],
+    "sitemap_urls": [
+      "https://www.qnb.com.tr/sitemap.xml"
+    ],
+    "include_url_substrings": [
+      "/private/private-ayricaliklar/",
+      "/private/private-kredi-kartlari/"
+    ],
+    "fallback_urls": []
+  },
+  {
+    "key": "qnb_card",
+    "bank": "QNB",
+    "card_products": [
+      "qnb-ms-private"
+    ],
+    "domains": [
+      "www.qnbcard.com.tr",
+      "qnbcard.com.tr"
+    ],
+    "listing_urls": [
+      "https://www.qnbcard.com.tr/kampanyalar"
+    ],
+    "sitemap_urls": [
+      "https://www.qnbcard.com.tr/sitemap.xml"
+    ],
+    "include_url_substrings": [
+      "/kampanyalar/"
+    ],
+    "exclude_url_substrings": [
+      "/biten-kampanyalar"
+    ],
+    "fallback_urls": []
+  },
+  {
+    "key": "wings",
+    "bank": "Akbank",
+    "card_products": [
+      "akbank-wings-elite",
+      "akbank-wings-black"
+    ],
+    "domains": [
+      "www.wingscard.com.tr",
+      "wingscard.com.tr"
+    ],
+    "listing_urls": [
+      "https://www.wingscard.com.tr/kampanyalar",
+      "https://www.wingscard.com.tr/wings-style",
+      "https://www.wingscard.com.tr/ayricaliklar",
+      "https://www.wingscard.com.tr/programlar"
+    ],
+    "sitemap_urls": [
+      "https://www.wingscard.com.tr/sitemap.xml"
+    ],
+    "include_url_substrings": [
+      "/kampanyalar/",
+      "/wings-style/",
+      "/ayricaliklar/"
+    ],
+    "fallback_urls": [
+      "https://www.wingscard.com.tr/ayricaliklar/tum-restoranlarda-15e-varan-indirim",
+      "https://www.wingscard.com.tr/kampanyalar/atu-mil-puan-firsati",
+      "https://www.wingscard.com.tr/kampanyalar/wings-ile-seyahat-harcamalarina-mil-puan-2026",
+      "https://www.wingscard.com.tr/kampanyalar/wingse-ozel-kingcomtrde-indirim",
+      "https://www.wingscard.com.tr/kampanyalar/pazarama-tatilde-indirim-01",
+      "https://www.wingscard.com.tr/kampanyalar/pazaramada-pesin-fiyatina-taksit-firsati",
+      "https://www.wingscard.com.tr/kampanyalar/isparkta-ucretsiz-parklanma",
+      "https://www.wingscard.com.tr/kampanyalar/petrol-ofisinde-chip-para-firsati-2026"
+    ]
+  },
+  {
+    "key": "axess_general",
+    "bank": "Akbank",
+    "card_products": [
+      "akbank-wings-elite",
+      "akbank-wings-black"
+    ],
+    "domains": [
+      "www.axess.com.tr",
+      "axess.com.tr"
+    ],
+    "listing_urls": [
+      "https://www.axess.com.tr/axess/kampanyalar"
+    ],
+    "sitemap_urls": [
+      "https://www.axess.com.tr/sitemap.xml"
+    ],
+    "include_url_substrings": [
+      "/axess/kampanyalar/"
+    ],
+    "exclude_url_substrings": [],
+    "fallback_urls": [
+      "https://www.axess.com.tr/axess/kampanyalar/axesse-ozel-isparkta-ucretsiz-park-hakki-hediye",
+      "https://www.axess.com.tr/axess/kampanyalar/kingcomtrde-indirim-axess",
+      "https://www.axess.com.tr/axess/kampanyalar/axesse-ozel-pazaramada-pesin-fiyatina-3-ve-6-taksit",
+      "https://www.axess.com.tr/axess/kampanyalar/juzdan-ile-odeye-ozel-tatilsepetinde-7500-tlye-varan-chip-para-axess",
+      "https://www.axess.com.tr/axess/kampanyalar/axess-ile-petrol-ofisinde-450-tlye-varan-chip-para"
+    ],
+    "max_details": 140
+  },
+  {
+    "key": "maximiles",
+    "bank": "İş Bankası",
+    "card_products": [
+      "is-maximiles-black"
+    ],
+    "domains": [
+      "www.maximiles.com.tr",
+      "maximiles.com.tr"
+    ],
+    "listing_urls": [
+      "https://www.maximiles.com.tr/kampanyalar/tum-kampanyalar",
+      "https://www.maximiles.com.tr/kampanyalar/maximiles-black",
+      "https://www.maximiles.com.tr/kampanyalar/maximum-kart-kampanyalari"
+    ],
+    "sitemap_urls": [
+      "https://www.maximiles.com.tr/sitemap.xml"
+    ],
+    "include_url_substrings": [
+      "/kampanyalar/"
+    ],
+    "exclude_url_substrings": [
+      "/tum-kampanyalar",
+      "/maximiles-black",
+      "/maximum-kart-kampanyalari",
+      "/indirim-kampanyalari",
+      "/maxipuan-kampanyalari",
+      "/maximil-kampanyalari"
+    ],
+    "fallback_urls": [
+      "https://www.maximiles.com.tr/kampanyalar/maximiles-black-ile-restoranlarda-20-indirim-ayricaligi",
+      "https://www.maximiles.com.tr/kampanyalar/e-ticaret-alisverislerinizde-1-000-tl-ye-varan-maxipuan",
+      "https://www.maximiles.com.tr/kampanyalar/maximiles-black-ile-otel-odemelerinize-5-indirim",
+      "https://www.maximiles.com.tr/kampanyalar/maximiles-black-le-yapacaginiz-otopark-odemelerinizde-50-indirim",
+      "https://www.maximiles.com.tr/kampanyalar/opet-te-450-tl-ye-varan-maxipuan-firsati",
+      "https://www.maximiles.com.tr/kampanyalar/up-enerji-hizli-ode-ile-akaryakit-alimlarinda-indirim-firsati",
+      "https://www.maximiles.com.tr/kampanyalar/zeplin-enerji-sarj-istasyonlarinda-30-indirim-firsati"
+    ],
+    "max_details": 140,
+    "category_listing_urls": [
+      {
+        "url": "https://www.maximiles.com.tr/kampanyalar/market-gida",
+        "categories": [
+          "market"
+        ]
+      },
+      {
+        "url": "https://www.maximiles.com.tr/kampanyalar/giyim-aksesuar",
+        "categories": [
+          "giyim"
+        ]
+      },
+      {
+        "url": "https://www.maximiles.com.tr/kampanyalar/online-alisveris",
+        "categories": [
+          "e-ticaret"
+        ]
+      },
+      {
+        "url": "https://www.maximiles.com.tr/kampanyalar/kitap-kirtasiye",
+        "categories": [
+          "egitim"
+        ]
+      },
+      {
+        "url": "https://www.maximiles.com.tr/kampanyalar/mobilya-dekorasyon",
+        "categories": [
+          "ev"
+        ]
+      },
+      {
+        "url": "https://www.maximiles.com.tr/kampanyalar/elektronik-iletisim",
+        "categories": [
+          "elektronik"
+        ]
+      }
+    ]
+  },
+  {
+    "key": "world",
+    "bank": "Yapı Kredi",
+    "card_products": [
+      "ykb-crystal"
+    ],
+    "domains": [
+      "www.worldcard.com.tr",
+      "worldcard.com.tr"
+    ],
+    "listing_urls": [
+      "https://www.worldcard.com.tr/kampanya",
+      "https://www.worldcard.com.tr/kampanyalar/e-ticaret",
+      "https://www.worldcard.com.tr/kampanyalar/restoranvecafe",
+      "https://www.worldcard.com.tr/kampanyalar/gida-market",
+      "https://www.worldcard.com.tr/kampanyalar/akaryakit-and-otogaz",
+      "https://www.worldcard.com.tr/kampanyalar/genel-kampanyalar"
+    ],
+    "sitemap_urls": [
+      "https://www.worldcard.com.tr/sitemap.xml"
+    ],
+    "include_url_substrings": [
+      "/kampanyalar/"
+    ],
+    "exclude_url_substrings": [
+      "/kampanyalar/e-ticaret",
+      "/kampanyalar/restoranvecafe",
+      "/kampanyalar/gida-market",
+      "/kampanyalar/akaryakit-and-otogaz",
+      "/kampanyalar/genel-kampanyalar"
+    ],
+    "fallback_urls": [
+      "https://www.worldcard.com.tr/kampanyalar/amazonda-300-tl-worldpuan-eylul",
+      "https://www.worldcard.com.tr/kampanyalar/seturdan-yapi-kredi-mobil-seyahat-planla-rezervasyonlarina-5000-tlye-varan-worldpuan",
+      "https://www.worldcard.com.tr/kampanyalar/giyim-ve-kozmetik-alisverislerinize-toplamda-1500-tlye-varan-worldpuan-firsati",
+      "https://www.worldcard.com.tr/kampanyalar/networkte-3000-tlye-varan-worldpuan",
+      "https://www.worldcard.com.tr/kampanyalar/carrefoursada-pesin-fiyatina-6-aya-varan-taksit"
+    ],
+    "max_details": 140,
+    "category_listing_urls": [
+      {
+        "url": "https://www.worldcard.com.tr/kampanyalar/akaryakit-and-otogaz",
+        "categories": [
+          "akaryakit"
+        ]
+      },
+      {
+        "url": "https://www.worldcard.com.tr/kampanyalar/e-ticaret",
+        "categories": [
+          "e-ticaret"
+        ]
+      },
+      {
+        "url": "https://www.worldcard.com.tr/kampanyalar/restoranvecafe",
+        "categories": [
+          "restoran"
+        ]
+      },
+      {
+        "url": "https://www.worldcard.com.tr/kampanyalar/gida-market",
+        "categories": [
+          "market"
+        ]
+      },
+      {
+        "url": "https://www.worldcard.com.tr/kampanyalar/otomotiv",
+        "categories": [
+          "otomotiv"
+        ]
+      },
+      {
+        "url": "https://www.worldcard.com.tr/kampanyalar/seyahat-kampanyalari",
+        "categories": [
+          "seyahat"
+        ]
+      },
+      {
+        "url": "https://www.worldcard.com.tr/kampanyalar/egitim-ve-hizmetler",
+        "categories": [
+          "egitim"
+        ]
+      }
+    ]
+  },
+  {
+    "key": "crystal_special",
+    "bank": "Yapı Kredi",
+    "card_products": [
+      "ykb-crystal"
+    ],
+    "domains": [
+      "www.yapikredi.com.tr",
+      "yapikredi.com.tr"
+    ],
+    "listing_urls": [
+      "https://www.yapikredi.com.tr/bireysel-bankacilik/kartlar/otel-restoran-indirimleri"
+    ],
+    "sitemap_urls": [
+      "https://www.yapikredi.com.tr/sitemap.xml"
+    ],
+    "include_url_substrings": [
+      "/bireysel-bankacilik/kartlar/otel-restoran-indirimleri"
+    ],
+    "fallback_urls": [
+      "https://www.yapikredi.com.tr/bireysel-bankacilik/kartlar/otel-restoran-indirimleri"
+    ]
+  },
+  {
+    "key": "teb",
+    "bank": "TEB",
+    "card_products": [
+      "teb-infinite"
+    ],
+    "domains": [
+      "www.teb.com.tr",
+      "teb.com.tr"
+    ],
+    "listing_urls": [
+      "https://www.teb.com.tr/kart-dunyasi/",
+      "https://www.teb.com.tr/infinite-card/"
+    ],
+    "sitemap_urls": [
+      "https://www.teb.com.tr/sitemap.xml"
+    ],
+    "include_url_substrings": [
+      "/kart-dunyasi-"
+    ],
+    "fallback_urls": [
+      "https://www.teb.com.tr/kart-dunyasi-otel-restoran-indirimi/",
+      "https://www.teb.com.tr/kart-dunyasi-e-ticaret/",
+      "https://www.teb.com.tr/kart-dunyasi-yurt-disi/",
+      "https://www.teb.com.tr/kart-dunyasi-sigorta/",
+      "https://www.teb.com.tr/kart-dunyasi-sinema-tiyatro-indirim/",
+      "https://www.teb.com.tr/kart-dunyasi-karafaki/",
+      "https://www.teb.com.tr/kart-dunyasi-antmare/"
+    ]
+  },
+  {
+    "key": "teb_general",
+    "bank": "TEB",
+    "card_products": [
+      "teb-infinite"
+    ],
+    "domains": [
+      "www.teb.com.tr",
+      "teb.com.tr"
+    ],
+    "listing_urls": [
+      "https://www.teb.com.tr/sizin-icin/kampanyalar/?cat=Kredi+Kartı"
+    ],
+    "sitemap_urls": [],
+    "include_url_substrings": [
+      "/sizin-icin/"
+    ],
+    "exclude_url_substrings": [
+      "/sizin-icin/kampanyalar/",
+      "/sizin-icin/banka-karti-kampanyalari/"
+    ],
+    "fallback_urls": [
+      "https://www.teb.com.tr/sizin-icin/eticaret-1050/",
+      "https://www.teb.com.tr/sizin-icin/restoran-500/",
+      "https://www.teb.com.tr/sizin-icin/seyahat-bonus/",
+      "https://www.teb.com.tr/sizin-icin/otomotiv-600-bonus/",
+      "https://www.teb.com.tr/sizin-icin/okula-donus/",
+      "https://www.teb.com.tr/sizin-icin/istanbulkart-bonus/",
+      "https://www.teb.com.tr/sizin-icin/ulasim-indirim-kampanyasi/",
+      "https://www.teb.com.tr/sizin-icin/dijital-platform-indirim/",
+      "https://www.teb.com.tr/sizin-icin/duty-free/",
+      "https://www.teb.com.tr/sizin-icin/yurtdisi-500/",
+      "https://www.teb.com.tr/sizin-icin/totalenergies/"
+    ],
+    "max_details": 240
+  }
+]
