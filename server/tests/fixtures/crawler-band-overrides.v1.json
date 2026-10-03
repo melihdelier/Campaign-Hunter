@@ -1,0 +1,290 @@
+{
+ "generatedFrom": "v1.4.2 crawler special_overrides (threshold-labelled keys), re-keyed by band position",
+ "overrides": [
+  {
+   "product": "is-maximiles-black",
+   "url": "https://www.maximiles.com.tr/kampanyalar/maximiles-black-ile-restoranlarda-20-indirim-ayricaligi",
+   "segmentLabels": [
+    "band_1",
+    "band_2",
+    "band_3",
+    "band_4"
+   ],
+   "segmentRules": {
+    "band_1": {
+     "rewardRule": {
+      "kind": "percent",
+      "rate": 0.05,
+      "minSpend": 4000,
+      "perTransactionCap": 1000
+     },
+     "periodCap": 2000,
+     "rulesComplete": true
+    },
+    "band_2": {
+     "rewardRule": {
+      "kind": "tiered_percent",
+      "tiers": [
+       {
+        "min": 4000,
+        "max": 7999.99,
+        "rate": 0.1
+       },
+       {
+        "min": 8000,
+        "rate": 0.2
+       }
+      ],
+      "perTransactionCap": 1750
+     },
+     "periodCap": 4000,
+     "rulesComplete": true
+    },
+    "band_3": {
+     "rewardRule": {
+      "kind": "tiered_percent",
+      "tiers": [
+       {
+        "min": 4000,
+        "max": 7999.99,
+        "rate": 0.1
+       },
+       {
+        "min": 8000,
+        "rate": 0.2
+       }
+      ],
+      "perTransactionCap": 3000
+     },
+     "periodCap": 8000,
+     "rulesComplete": true
+    },
+    "band_4": {
+     "rewardRule": {
+      "kind": "tiered_percent",
+      "tiers": [
+       {
+        "min": 4000,
+        "max": 7999.99,
+        "rate": 0.1
+       },
+       {
+        "min": 8000,
+        "rate": 0.2
+       }
+      ],
+      "perTransactionCap": 3000
+     },
+     "periodCap": 10000,
+     "rulesComplete": true
+    }
+   },
+   "rewardRule": {
+    "kind": "tiered_percent",
+    "tiers": [
+     {
+      "min": 4000,
+      "max": 7999.99,
+      "rate": 0.1
+     },
+     {
+      "min": 8000,
+      "rate": 0.2
+     }
+    ],
+    "perTransactionCap": 3000
+   },
+   "periodCap": 8000,
+   "categories": [
+    "restoran"
+   ]
+  },
+  {
+   "product": "is-maximiles-black",
+   "url": "https://www.maximiles.com.tr/kampanyalar/maximiles-black-ile-otel-odemelerinize-5-indirim",
+   "segmentLabels": [
+    "band_1",
+    "band_2",
+    "band_3",
+    "band_4"
+   ],
+   "segmentRules": {
+    "band_1": {
+     "rewardRule": {
+      "kind": "percent",
+      "rate": 0.05,
+      "minSpend": 25000,
+      "perTransactionCap": 1500
+     },
+     "periodCap": 1500,
+     "rulesComplete": true
+    },
+    "band_2": {
+     "rewardRule": {
+      "kind": "percent",
+      "rate": 0.05,
+      "minSpend": 25000,
+      "perTransactionCap": 1500
+     },
+     "periodCap": 3000,
+     "rulesComplete": true
+    },
+    "band_3": {
+     "rewardRule": {
+      "kind": "percent",
+      "rate": 0.05,
+      "minSpend": 25000,
+      "perTransactionCap": 1500
+     },
+     "periodCap": 3000,
+     "rulesComplete": true
+    },
+    "band_4": {
+     "rewardRule": {
+      "kind": "percent",
+      "rate": 0.05,
+      "minSpend": 25000,
+      "perTransactionCap": 1500
+     },
+     "periodCap": 3000,
+     "rulesComplete": true
+    }
+   },
+   "rewardRule": {
+    "kind": "percent",
+    "rate": 0.05,
+    "minSpend": 25000,
+    "perTransactionCap": 1500
+   },
+   "periodCap": 3000,
+   "categories": [
+    "otel"
+   ]
+  },
+  {
+   "product": "is-maximiles-black",
+   "url": "https://www.maximiles.com.tr/kampanyalar/maximiles-black-le-yapacaginiz-otopark-odemelerinizde-50-indirim",
+   "segmentLabels": [
+    "band_1",
+    "band_2",
+    "band_3",
+    "band_4"
+   ],
+   "segmentRules": {
+    "band_1": {
+     "rewardRule": {
+      "kind": "percent",
+      "rate": 0.2,
+      "minSpend": 500,
+      "perTransactionCap": 500
+     },
+     "periodCap": 500,
+     "rulesComplete": true
+    },
+    "band_2": {
+     "rewardRule": {
+      "kind": "percent",
+      "rate": 0.5,
+      "minSpend": 500,
+      "perTransactionCap": 500
+     },
+     "periodCap": 500,
+     "rulesComplete": true
+    },
+    "band_3": {
+     "rewardRule": {
+      "kind": "percent",
+      "rate": 0.5,
+      "minSpend": 500,
+      "perTransactionCap": 1000
+     },
+     "periodCap": 2000,
+     "rulesComplete": true
+    },
+    "band_4": {
+     "rewardRule": {
+      "kind": "percent",
+      "rate": 0.5,
+      "minSpend": 500,
+      "perTransactionCap": 1000
+     },
+     "periodCap": 4000,
+     "rulesComplete": true
+    }
+   },
+   "rewardRule": {
+    "kind": "percent",
+    "rate": 0.5,
+    "minSpend": 500,
+    "perTransactionCap": 1000
+   },
+   "periodCap": 2000,
+   "categories": [
+    "otopark"
+   ]
+  },
+  {
+   "product": "ykb-crystal",
+   "url": "https://www.yapikredi.com.tr/bireysel-bankacilik/kartlar/otel-restoran-indirimleri",
+   "segmentLabels": [
+    "band_1",
+    "band_2",
+    "band_3",
+    "band_4"
+   ],
+   "segmentRules": {
+    "band_1": {
+     "rewardRule": {
+      "kind": "percent",
+      "rate": 0.2,
+      "minSpend": 0,
+      "perTransactionCap": 1500
+     },
+     "periodCap": 3000,
+     "rulesComplete": true
+    },
+    "band_2": {
+     "rewardRule": {
+      "kind": "percent",
+      "rate": 0.2,
+      "minSpend": 0,
+      "perTransactionCap": 2500
+     },
+     "periodCap": 5000,
+     "rulesComplete": true
+    },
+    "band_3": {
+     "rewardRule": {
+      "kind": "percent",
+      "rate": 0.2,
+      "minSpend": 0,
+      "perTransactionCap": 3000
+     },
+     "periodCap": 7500,
+     "rulesComplete": true
+    },
+    "band_4": {
+     "rewardRule": {
+      "kind": "percent",
+      "rate": 0.2,
+      "minSpend": 0,
+      "perTransactionCap": 4000
+     },
+     "periodCap": 10000,
+     "rulesComplete": true
+    }
+   },
+   "rewardRule": {
+    "kind": "percent",
+    "rate": 0.2,
+    "minSpend": 0,
+    "perTransactionCap": 1500
+   },
+   "periodCap": 3000,
+   "categories": [
+    "restoran",
+    "otel"
+   ]
+  }
+ ]
+}

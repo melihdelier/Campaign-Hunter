@@ -19,6 +19,11 @@ publishable.
                      healthy sources use fresh data; publish the repaired catalog
         rejected  -> crawl clearly degraded/failed; keep the LKG catalog, do not publish to
                      Supabase (the deployed static catalog stays the LKG)
+      Eligibility schema (v1.4.2): every campaign that carries `eligibilityRule`/`rewardVariants` must have
+      `eligibilitySchemaVersion` 1 and a valid rule (server/eligibility_schema.py). An invalid fresh record is
+      dropped, never published and never re-read through its legacy fields; its LKG record (same id or
+      sourceUrl, itself valid and unexpired) is kept instead. Invalid records found in the LKG are dropped too.
+      This happens before source health is measured, so a source whose rules all broke is repaired from LKG.
       If NO last-known-good could be obtained, the gate fails closed: nothing is published and
       the deploy is blocked (deploy=false), so the existing Pages site and Supabase snapshot stay
       untouched. Only an explicit first-bootstrap override (CATALOG_GUARD_ALLOW_BOOTSTRAP=1, set by
@@ -36,6 +41,11 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.request import Request, urlopen
+
+try:  # works both as `python server/catalog_guard.py` and as an imported module in tests
+    import eligibility_schema as es
+except ImportError:  # pragma: no cover
+    from server import eligibility_schema as es
 
 ROOT = Path(__file__).resolve().parent
 DATA_DIR = ROOT / "data"
@@ -60,6 +70,8 @@ DEGRADED_SOURCE_SHARE = 0.50    # >= 50% of healthy sources degraded (and >= 2) 
 
 BOOTSTRAP_ENV = "CATALOG_GUARD_ALLOW_BOOTSTRAP"
 
+INVALID_RULE_WARNING = ("Taramada bu kampanyanın uygunluk kuralı geçersiz/desteklenmeyen şema sürümündeydi; "
+                        "geçersiz kayıt yayınlanmadı, son başarılı (yayındaki) kayıt korunuyor.")
 STALE_WARNING = "Bu kaynak bu taramada sağlıklı sonuç vermedi; son başarılı (yayındaki) katalog kaydı korunuyor."
 
 
@@ -196,17 +208,40 @@ def mark_stale(c: dict) -> dict:
     return s
 
 
+def split_by_eligibility(campaigns: list[dict], master: dict) -> tuple[list[dict], list[dict], list[dict]]:
+    """-> (valid_or_legacy, invalid_entries, warning_entries)."""
+    keep, bad, warn = [], [], []
+    for c in campaigns:
+        v = es.validate_campaign(c, master)
+        if v["warnings"]:
+            warn.append({"id": c.get("id"), "sourceKey": c.get("sourceKey"), "warnings": v["warnings"]})
+        if v["status"] == "invalid":
+            bad.append({"campaign": c, "id": c.get("id"), "sourceKey": c.get("sourceKey"), "sourceUrl": c.get("sourceUrl"),
+                        "errors": v["errors"]})
+        else:
+            keep.append(c)
+    return keep, bad, warn
+
+
 def bootstrap_allowed() -> bool:
     return os.environ.get(BOOTSTRAP_ENV, "").strip().lower() in {"1", "true", "yes"}
 
 
 def evaluate(new: dict | None, lkg: dict | None, crawl_ok: bool, today: str | None = None, keys: list[str] | None = None,
-             allow_bootstrap: bool = False) -> tuple[dict | None, dict]:
+             allow_bootstrap: bool = False, master: dict | None = None) -> tuple[dict | None, dict]:
     """Return (final_catalog_or_None, report). final None means nothing may be deployed (report['deploy'] is False)."""
     today = today or today_tr()
     keys = keys if keys is not None else source_keys()
+    master = master if master is not None else es.load_master()
     report: dict = {"verdict": "ok", "publish": True, "deploy": True, "reasons": [], "sources": {}, "repairedSources": [],
-                    "baselineGeneratedAt": gen_at(lkg) or None, "baseline": "lkg" if is_valid_catalog(lkg) else "none"}
+                    "baselineGeneratedAt": gen_at(lkg) or None, "baseline": "lkg" if is_valid_catalog(lkg) else "none",
+                    "invalidEligibility": [], "eligibilityWarnings": [], "lkgInvalidEligibility": []}
+    # Fail closed on eligibility schema: invalid LKG records are never re-published or restored either.
+    if is_valid_catalog(lkg):
+        lkg_keep, lkg_bad, _ = split_by_eligibility(lkg["campaigns"], master)
+        if lkg_bad:
+            report["lkgInvalidEligibility"] = [{k: b[k] for k in ("id", "sourceKey", "errors")} for b in lkg_bad]
+            lkg = {**lkg, "campaigns": lkg_keep}
     have_lkg = is_valid_catalog(lkg)
 
     def reject(reason: str):
@@ -225,6 +260,11 @@ def evaluate(new: dict | None, lkg: dict | None, crawl_ok: bool, today: str | No
     if have_lkg and gen_at(new) <= gen_at(lkg):
         return reject("Tarayıcı yeni bir katalog üretmedi (generatedAt değişmedi).")
 
+    keep, invalid, warn = split_by_eligibility(new["campaigns"], master)
+    report["eligibilityWarnings"] = warn
+    report["invalidEligibility"] = [{k: b[k] for k in ("id", "sourceKey", "sourceUrl", "errors")} for b in invalid]
+    new = {**new, "campaigns": keep}
+
     new_campaigns = [c for c in new["campaigns"] if c.get("sourceKind") != "user_private"]
     fresh = [c for c in new_campaigns if not c.get("staleFromLastKnownGood")]
     if not fresh:
@@ -238,6 +278,8 @@ def evaluate(new: dict | None, lkg: dict | None, crawl_ok: bool, today: str | No
         report["reasons"].append("İlk kurulum (bootstrap) onayı ile son başarılı katalog olmadan yayın yapıldı; yalnız mutlak kontroller uygulandı.")
         final = dict(new)
         final["campaigns"] = [c for c in new["campaigns"] if not (c.get("staleFromLastKnownGood") and not not_expired(c, today))]
+        if invalid:
+            report["reasons"].append(f"Uygunluk kuralı geçersiz {len(invalid)} kampanya yayından çıkarıldı (LKG yok).")
         final["meta"] = {**(new.get("meta") or {}), "guard": {k: report[k] for k in ("verdict", "baseline", "reasons")}}
         return final, report
 
@@ -290,6 +332,27 @@ def evaluate(new: dict | None, lkg: dict | None, crawl_ok: bool, today: str | No
             final_campaigns.append(mark_stale(c)); restored += 1
         report["repairedSources"].append({"key": k, "status": report["sources"][k]["status"], "restored": restored,
                                           "baseline": report["sources"][k]["baseline"], "fresh": report["sources"][k]["fresh"]})
+    # Invalid fresh records: keep their LKG record (by id or sourceUrl) if not already present.
+    present_urls = {c.get("sourceUrl") for c in final_campaigns if c.get("sourceUrl")}
+    present_ids = {c.get("id") for c in final_campaigns}
+    lkg_by_id = {c.get("id"): c for c in lkg["campaigns"] if not_expired(c, today)}
+    lkg_by_url = {c.get("sourceUrl"): c for c in lkg["campaigns"] if c.get("sourceUrl") and not_expired(c, today)}
+    for entry, b in zip(report["invalidEligibility"], invalid):
+        prev = lkg_by_id.get(b["id"]) or (lkg_by_url.get(b["sourceUrl"]) if b["sourceUrl"] else None)
+        if prev is None or prev.get("id") in present_ids or (prev.get("sourceUrl") and prev.get("sourceUrl") in present_urls):
+            entry["restoredFromLkg"] = bool(prev is not None and (prev.get("id") in present_ids or prev.get("sourceUrl") in present_urls))
+            continue
+        restored = mark_stale(prev)
+        restored["decisionWarnings"] = list(dict.fromkeys(restored["decisionWarnings"] + [INVALID_RULE_WARNING]))
+        final_campaigns.append(restored)
+        present_ids.add(prev.get("id"))
+        if prev.get("sourceUrl"):
+            present_urls.add(prev["sourceUrl"])
+        entry["restoredFromLkg"] = True
+    if invalid:
+        report["verdict"] = "repaired"
+        restored_n = sum(1 for e in report["invalidEligibility"] if e.get("restoredFromLkg"))
+        report["reasons"].append(f"Uygunluk kuralı geçersiz {len(invalid)} kampanya yayınlanmadı; {restored_n} tanesi için son başarılı kayıt korundu.")
     if degraded:
         report["verdict"] = "repaired"
         report["reasons"].append("Önceden sağlıklı kaynak(lar) sıfır/ciddi düşüş verdi; bu kaynaklar için son başarılı kayıtlar korundu: " + ", ".join(degraded))
@@ -299,7 +362,8 @@ def evaluate(new: dict | None, lkg: dict | None, crawl_ok: bool, today: str | No
     meta = dict(new.get("meta") or {})
     meta["campaign_count"] = len(final["campaigns"])
     meta["guard"] = {"verdict": report["verdict"], "baselineGeneratedAt": report["baselineGeneratedAt"],
-                     "repairedSources": [r["key"] for r in report["repairedSources"]], "reasons": report["reasons"]}
+                     "repairedSources": [r["key"] for r in report["repairedSources"]], "reasons": report["reasons"],
+                     "invalidEligibility": [e["id"] for e in report["invalidEligibility"]]}
     final["meta"] = meta
     return final, report
 
@@ -324,6 +388,12 @@ def cmd_evaluate(crawl_outcome: str) -> int:
     if report.get("sources"):
         lines += ["", "| Kaynak | Önceki | Taze | Durum |", "|---|---|---|---|"]
         lines += [f"| {k} | {v['baseline']} | {v['fresh']} | {v['status']} |" for k, v in report["sources"].items()]
+    if report.get("invalidEligibility"):
+        lines += ["", "**Geçersiz uygunluk kuralı (yayınlanmadı):**"]
+        lines += [f"- `{e['id']}` ({e['sourceKey']}): {'; '.join(e['errors'][:3])}" for e in report["invalidEligibility"]]
+    if report.get("eligibilityWarnings"):
+        lines += ["", "**Uygunluk kuralı uyarıları (ana veride olmayan kod; etkisiz):**"]
+        lines += [f"- `{w['id']}`: {'; '.join(w['warnings'][:3])}" for w in report["eligibilityWarnings"]]
     gh_summary("\n".join(lines))
     if report["verdict"] == "rejected":
         print(f"::error::Katalog kalite kapısı yeni taramayı reddetti: {' '.join(report['reasons'])}")

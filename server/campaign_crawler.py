@@ -1120,49 +1120,49 @@ def special_overrides(c: dict) -> dict:
         c["transactionRules"].update({"location":"all"})
     if "maximiles-black-ile-restoranlarda-20-indirim-ayricaligi" in url:
         c.update({
-            "eligibility":{"segmentLabels":["1 milyon TL altı","1–4 milyon TL","4–8 milyon TL","8 milyon TL+"]},"categories":["restoran"],
+            "eligibility":{"segmentLabels":["band_1","band_2","band_3","band_4"]},"categories":["restoran"],
             "merchantScope":{"kind":"all"},
             "segmentRules":{
-                "1 milyon TL altı":{"rewardRule":{"kind":"percent","rate":0.05,"minSpend":4000,"perTransactionCap":1000},"periodCap":2000,"rulesComplete":True},
-                "1–4 milyon TL":{"rewardRule":{"kind":"tiered_percent","tiers":[{"min":4000,"max":7999.99,"rate":0.10},{"min":8000,"rate":0.20}],"perTransactionCap":1750},"periodCap":4000,"rulesComplete":True},
-                "4–8 milyon TL":{"rewardRule":{"kind":"tiered_percent","tiers":[{"min":4000,"max":7999.99,"rate":0.10},{"min":8000,"rate":0.20}],"perTransactionCap":3000},"periodCap":8000,"rulesComplete":True},
-                "8 milyon TL+":{"rewardRule":{"kind":"tiered_percent","tiers":[{"min":4000,"max":7999.99,"rate":0.10},{"min":8000,"rate":0.20}],"perTransactionCap":3000},"periodCap":10000,"rulesComplete":True},
+                "band_1":{"rewardRule":{"kind":"percent","rate":0.05,"minSpend":4000,"perTransactionCap":1000},"periodCap":2000,"rulesComplete":True},
+                "band_2":{"rewardRule":{"kind":"tiered_percent","tiers":[{"min":4000,"max":7999.99,"rate":0.10},{"min":8000,"rate":0.20}],"perTransactionCap":1750},"periodCap":4000,"rulesComplete":True},
+                "band_3":{"rewardRule":{"kind":"tiered_percent","tiers":[{"min":4000,"max":7999.99,"rate":0.10},{"min":8000,"rate":0.20}],"perTransactionCap":3000},"periodCap":8000,"rulesComplete":True},
+                "band_4":{"rewardRule":{"kind":"tiered_percent","tiers":[{"min":4000,"max":7999.99,"rate":0.10},{"min":8000,"rate":0.20}],"perTransactionCap":3000},"periodCap":10000,"rulesComplete":True},
             },
             "rewardRule":{"kind":"tiered_percent","tiers":[{"min":4000,"max":7999.99,"rate":0.10},{"min":8000,"rate":0.20}],"perTransactionCap":3000},
             "periodCap":8000,"resetPolicy":"monthly","rulesComplete":True,
         })
     if "maximiles-black-ile-otel-odemelerinize-5-indirim" in url:
         c.update({
-            "eligibility":{"segmentLabels":["1 milyon TL altı","1–4 milyon TL","4–8 milyon TL","8 milyon TL+"]},"categories":["otel"],
+            "eligibility":{"segmentLabels":["band_1","band_2","band_3","band_4"]},"categories":["otel"],
             "segmentRules":{
-                "1 milyon TL altı":{"rewardRule":{"kind":"percent","rate":0.05,"minSpend":25000,"perTransactionCap":1500},"periodCap":1500,"rulesComplete":True},
-                "1–4 milyon TL":{"rewardRule":{"kind":"percent","rate":0.05,"minSpend":25000,"perTransactionCap":1500},"periodCap":3000,"rulesComplete":True},
-                "4–8 milyon TL":{"rewardRule":{"kind":"percent","rate":0.05,"minSpend":25000,"perTransactionCap":1500},"periodCap":3000,"rulesComplete":True},
-                "8 milyon TL+":{"rewardRule":{"kind":"percent","rate":0.05,"minSpend":25000,"perTransactionCap":1500},"periodCap":3000,"rulesComplete":True},
+                "band_1":{"rewardRule":{"kind":"percent","rate":0.05,"minSpend":25000,"perTransactionCap":1500},"periodCap":1500,"rulesComplete":True},
+                "band_2":{"rewardRule":{"kind":"percent","rate":0.05,"minSpend":25000,"perTransactionCap":1500},"periodCap":3000,"rulesComplete":True},
+                "band_3":{"rewardRule":{"kind":"percent","rate":0.05,"minSpend":25000,"perTransactionCap":1500},"periodCap":3000,"rulesComplete":True},
+                "band_4":{"rewardRule":{"kind":"percent","rate":0.05,"minSpend":25000,"perTransactionCap":1500},"periodCap":3000,"rulesComplete":True},
             },
             "rewardRule":{"kind":"percent","rate":0.05,"minSpend":25000,"perTransactionCap":1500},
             "periodCap":3000,"resetPolicy":"monthly","rulesComplete":True,
         })
     if "maximiles-black-le-yapacaginiz-otopark-odemelerinizde-50-indirim" in url or "maximiles-black-ile-yapacaginiz-otopark-odemelerinizde-50-indirim" in url:
         c.update({
-            "eligibility":{"segmentLabels":["1 milyon TL altı","1–4 milyon TL","4–8 milyon TL","8 milyon TL+"]},"categories":["otopark"],
+            "eligibility":{"segmentLabels":["band_1","band_2","band_3","band_4"]},"categories":["otopark"],
             "segmentRules":{
-                "1 milyon TL altı":{"rewardRule":{"kind":"percent","rate":0.20,"minSpend":500,"perTransactionCap":500},"periodCap":500,"rulesComplete":True},
-                "1–4 milyon TL":{"rewardRule":{"kind":"percent","rate":0.50,"minSpend":500,"perTransactionCap":500},"periodCap":500,"rulesComplete":True},
-                "4–8 milyon TL":{"rewardRule":{"kind":"percent","rate":0.50,"minSpend":500,"perTransactionCap":1000},"periodCap":2000,"rulesComplete":True},
-                "8 milyon TL+":{"rewardRule":{"kind":"percent","rate":0.50,"minSpend":500,"perTransactionCap":1000},"periodCap":4000,"rulesComplete":True},
+                "band_1":{"rewardRule":{"kind":"percent","rate":0.20,"minSpend":500,"perTransactionCap":500},"periodCap":500,"rulesComplete":True},
+                "band_2":{"rewardRule":{"kind":"percent","rate":0.50,"minSpend":500,"perTransactionCap":500},"periodCap":500,"rulesComplete":True},
+                "band_3":{"rewardRule":{"kind":"percent","rate":0.50,"minSpend":500,"perTransactionCap":1000},"periodCap":2000,"rulesComplete":True},
+                "band_4":{"rewardRule":{"kind":"percent","rate":0.50,"minSpend":500,"perTransactionCap":1000},"periodCap":4000,"rulesComplete":True},
             },
             "rewardRule":{"kind":"percent","rate":0.50,"minSpend":500,"perTransactionCap":1000},
             "periodCap":2000,"resetPolicy":"monthly","rulesComplete":True,
         })
     if "otel-restoran-indirimleri" in url and c.get("bank")=="Yapı Kredi":
         c.update({
-            "eligibility":{"segmentLabels":["1 milyon TL altı","1–6 milyon TL","6–10 milyon TL","10 milyon TL+"]},"categories":["restoran","otel"],
+            "eligibility":{"segmentLabels":["band_1","band_2","band_3","band_4"]},"categories":["restoran","otel"],
             "segmentRules":{
-                "1 milyon TL altı":{"rewardRule":{"kind":"percent","rate":0.20,"minSpend":0,"perTransactionCap":1500},"periodCap":3000,"rulesComplete":True},
-                "1–6 milyon TL":{"rewardRule":{"kind":"percent","rate":0.20,"minSpend":0,"perTransactionCap":2500},"periodCap":5000,"rulesComplete":True},
-                "6–10 milyon TL":{"rewardRule":{"kind":"percent","rate":0.20,"minSpend":0,"perTransactionCap":3000},"periodCap":7500,"rulesComplete":True},
-                "10 milyon TL+":{"rewardRule":{"kind":"percent","rate":0.20,"minSpend":0,"perTransactionCap":4000},"periodCap":10000,"rulesComplete":True},
+                "band_1":{"rewardRule":{"kind":"percent","rate":0.20,"minSpend":0,"perTransactionCap":1500},"periodCap":3000,"rulesComplete":True},
+                "band_2":{"rewardRule":{"kind":"percent","rate":0.20,"minSpend":0,"perTransactionCap":2500},"periodCap":5000,"rulesComplete":True},
+                "band_3":{"rewardRule":{"kind":"percent","rate":0.20,"minSpend":0,"perTransactionCap":3000},"periodCap":7500,"rulesComplete":True},
+                "band_4":{"rewardRule":{"kind":"percent","rate":0.20,"minSpend":0,"perTransactionCap":4000},"periodCap":10000,"rulesComplete":True},
             },
             # Metal Crystal + Crystal birlikte: iki kart toplamında aylık en fazla 15.000 TL (ayrı müşteri kuralı; segment değil).
             "combinedCustomerCaps":[{"id":"crystal_plus_metal","label":"Metal Crystal + Crystal birlikte (iki kart toplamı)","requiresCardTypes":["crystal","metal_crystal"],"periodCap":15000,"resetPolicy":"monthly","scope":"customer_across_cards"}],

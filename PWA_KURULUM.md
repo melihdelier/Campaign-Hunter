@@ -54,7 +54,7 @@ Workflow Türkiye saatiyle yaklaşık 08:00 ve 18:00'de crawler'ı çalıştır�
 
 ## 4. Cihazlar arası kişisel veri
 
-Ayarlar > **Bulut ve cihazlar arası senkron** bölümünde e-posta/şifre ile Supabase Auth hesabı oluşturulabilir.
+Profil > **Hesap** bölümünde (v1.3 öncesi: Ayarlar > Bulut ve cihazlar arası senkron) e-posta/şifre ile Supabase Auth hesabı oluşturulabilir.
 
 Buluta taşınanlar:
 - THY/QNB/Wings/Maximiles/Crystal/TEB segment ayarları

@@ -1,0 +1,101 @@
+{
+  "schema": "eligibility-master-codes",
+  "schemaVersion": 1,
+  "note": "Codes the catalog quality guard accepts in eligibility rules. Generated from web/profile-catalog.js (= migration 008/009 seed); parity is enforced by web/test-eligibility.mjs. Expanding the product catalog updates this file in the same controlled step.",
+  "banks": [
+    "akbank",
+    "isbank",
+    "qnb",
+    "teb",
+    "ykb"
+  ],
+  "cardProducts": [
+    {
+      "code": "akbank-wings-elite",
+      "bankCode": "akbank"
+    },
+    {
+      "code": "akbank-wings-black",
+      "bankCode": "akbank"
+    },
+    {
+      "code": "is-maximiles-black",
+      "bankCode": "isbank"
+    },
+    {
+      "code": "qnb-ms-private",
+      "bankCode": "qnb"
+    },
+    {
+      "code": "teb-infinite",
+      "bankCode": "teb"
+    },
+    {
+      "code": "ykb-crystal",
+      "bankCode": "ykb"
+    }
+  ],
+  "dimensions": [
+    {
+      "code": "qnb_segment",
+      "options": [
+        "other",
+        "first",
+        "first_plus",
+        "private"
+      ]
+    },
+    {
+      "code": "thy_status",
+      "options": [
+        "classic",
+        "classic_plus",
+        "elite",
+        "elite_plus"
+      ]
+    },
+    {
+      "code": "wings_tier",
+      "options": [
+        "standard",
+        "black",
+        "black_plus"
+      ]
+    },
+    {
+      "code": "maximiles_band",
+      "options": [
+        "band_1",
+        "band_2",
+        "band_3",
+        "band_4"
+      ]
+    },
+    {
+      "code": "crystal_band",
+      "options": [
+        "band_1",
+        "band_2",
+        "band_3",
+        "band_4"
+      ]
+    },
+    {
+      "code": "crystal_card_type",
+      "options": [
+        "crystal",
+        "metal_crystal",
+        "crystal_and_metal"
+      ]
+    },
+    {
+      "code": "teb_tier",
+      "options": [
+        "standard",
+        "plus",
+        "premium",
+        "ultra"
+      ]
+    }
+  ]
+}

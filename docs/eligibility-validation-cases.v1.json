@@ -1,0 +1,996 @@
+{
+  "schemaVersion": 1,
+  "note": "Shared validation fixture. Run by BOTH web/test-eligibility.mjs (client, runtime structural check + catalog check) and server/tests/test_eligibility_schema.py (catalog quality guard). Every case also carries legacy fields (cardProductIds teb-infinite + segmentLabels Ultra) that WOULD match the probe card, to prove that an invalid new-schema record never falls back to them. Probe: pay with teb-infinite, teb_tier=ultra.",
+  "cases": [
+    {
+      "name": "v1 rule accepted",
+      "campaign": {
+        "cardProductIds": [
+          "teb-infinite"
+        ],
+        "eligibility": {
+          "segmentLabels": [
+            "Ultra"
+          ]
+        },
+        "eligibilitySchemaVersion": 1,
+        "eligibilityRule": {
+          "all": [
+            {
+              "payWith": {
+                "cards": [
+                  "teb-infinite"
+                ]
+              }
+            },
+            {
+              "attr": {
+                "dim": "teb_tier",
+                "in": [
+                  "ultra"
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "catalogStatus": "valid",
+      "runtimeStatus": "valid",
+      "errorContains": null,
+      "eligibleForProbe": true
+    },
+    {
+      "name": "rule without version rejected",
+      "campaign": {
+        "cardProductIds": [
+          "teb-infinite"
+        ],
+        "eligibility": {
+          "segmentLabels": [
+            "Ultra"
+          ]
+        },
+        "eligibilityRule": {
+          "all": [
+            {
+              "payWith": {
+                "cards": [
+                  "teb-infinite"
+                ]
+              }
+            },
+            {
+              "attr": {
+                "dim": "teb_tier",
+                "in": [
+                  "ultra"
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "catalogStatus": "invalid",
+      "runtimeStatus": "invalid",
+      "errorContains": "eligibilitySchemaVersion: missing",
+      "eligibleForProbe": false
+    },
+    {
+      "name": "unsupported version 2 rejected",
+      "campaign": {
+        "cardProductIds": [
+          "teb-infinite"
+        ],
+        "eligibility": {
+          "segmentLabels": [
+            "Ultra"
+          ]
+        },
+        "eligibilitySchemaVersion": 2,
+        "eligibilityRule": {
+          "all": [
+            {
+              "payWith": {
+                "cards": [
+                  "teb-infinite"
+                ]
+              }
+            },
+            {
+              "attr": {
+                "dim": "teb_tier",
+                "in": [
+                  "ultra"
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "catalogStatus": "invalid",
+      "runtimeStatus": "invalid",
+      "errorContains": "unsupported",
+      "eligibleForProbe": false
+    },
+    {
+      "name": "version 0 rejected",
+      "campaign": {
+        "cardProductIds": [
+          "teb-infinite"
+        ],
+        "eligibility": {
+          "segmentLabels": [
+            "Ultra"
+          ]
+        },
+        "eligibilitySchemaVersion": 0,
+        "eligibilityRule": {
+          "all": [
+            {
+              "payWith": {
+                "cards": [
+                  "teb-infinite"
+                ]
+              }
+            },
+            {
+              "attr": {
+                "dim": "teb_tier",
+                "in": [
+                  "ultra"
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "catalogStatus": "invalid",
+      "runtimeStatus": "invalid",
+      "errorContains": "unsupported",
+      "eligibleForProbe": false
+    },
+    {
+      "name": "string version rejected",
+      "campaign": {
+        "cardProductIds": [
+          "teb-infinite"
+        ],
+        "eligibility": {
+          "segmentLabels": [
+            "Ultra"
+          ]
+        },
+        "eligibilitySchemaVersion": "1",
+        "eligibilityRule": {
+          "all": [
+            {
+              "payWith": {
+                "cards": [
+                  "teb-infinite"
+                ]
+              }
+            },
+            {
+              "attr": {
+                "dim": "teb_tier",
+                "in": [
+                  "ultra"
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "catalogStatus": "invalid",
+      "runtimeStatus": "invalid",
+      "errorContains": "malformed",
+      "eligibleForProbe": false
+    },
+    {
+      "name": "fractional version rejected",
+      "campaign": {
+        "cardProductIds": [
+          "teb-infinite"
+        ],
+        "eligibility": {
+          "segmentLabels": [
+            "Ultra"
+          ]
+        },
+        "eligibilitySchemaVersion": 1.5,
+        "eligibilityRule": {
+          "all": [
+            {
+              "payWith": {
+                "cards": [
+                  "teb-infinite"
+                ]
+              }
+            },
+            {
+              "attr": {
+                "dim": "teb_tier",
+                "in": [
+                  "ultra"
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "catalogStatus": "invalid",
+      "runtimeStatus": "invalid",
+      "errorContains": "malformed",
+      "eligibleForProbe": false
+    },
+    {
+      "name": "boolean version rejected",
+      "campaign": {
+        "cardProductIds": [
+          "teb-infinite"
+        ],
+        "eligibility": {
+          "segmentLabels": [
+            "Ultra"
+          ]
+        },
+        "eligibilitySchemaVersion": true,
+        "eligibilityRule": {
+          "all": [
+            {
+              "payWith": {
+                "cards": [
+                  "teb-infinite"
+                ]
+              }
+            },
+            {
+              "attr": {
+                "dim": "teb_tier",
+                "in": [
+                  "ultra"
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "catalogStatus": "invalid",
+      "runtimeStatus": "invalid",
+      "errorContains": "malformed",
+      "eligibleForProbe": false
+    },
+    {
+      "name": "null version rejected",
+      "campaign": {
+        "cardProductIds": [
+          "teb-infinite"
+        ],
+        "eligibility": {
+          "segmentLabels": [
+            "Ultra"
+          ]
+        },
+        "eligibilitySchemaVersion": null,
+        "eligibilityRule": {
+          "all": [
+            {
+              "payWith": {
+                "cards": [
+                  "teb-infinite"
+                ]
+              }
+            },
+            {
+              "attr": {
+                "dim": "teb_tier",
+                "in": [
+                  "ultra"
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "catalogStatus": "invalid",
+      "runtimeStatus": "invalid",
+      "errorContains": "malformed",
+      "eligibleForProbe": false
+    },
+    {
+      "name": "null rule rejected (key present)",
+      "campaign": {
+        "cardProductIds": [
+          "teb-infinite"
+        ],
+        "eligibility": {
+          "segmentLabels": [
+            "Ultra"
+          ]
+        },
+        "eligibilitySchemaVersion": 1,
+        "eligibilityRule": null
+      },
+      "catalogStatus": "invalid",
+      "runtimeStatus": "invalid",
+      "errorContains": "node must be an object",
+      "eligibleForProbe": false
+    },
+    {
+      "name": "two-key node rejected",
+      "campaign": {
+        "cardProductIds": [
+          "teb-infinite"
+        ],
+        "eligibility": {
+          "segmentLabels": [
+            "Ultra"
+          ]
+        },
+        "eligibilitySchemaVersion": 1,
+        "eligibilityRule": {
+          "payWith": {
+            "cards": [
+              "teb-infinite"
+            ]
+          },
+          "attr": {
+            "dim": "teb_tier",
+            "in": [
+              "ultra"
+            ]
+          }
+        }
+      },
+      "catalogStatus": "invalid",
+      "runtimeStatus": "invalid",
+      "errorContains": "exactly one of",
+      "eligibleForProbe": false
+    },
+    {
+      "name": "empty all rejected",
+      "campaign": {
+        "cardProductIds": [
+          "teb-infinite"
+        ],
+        "eligibility": {
+          "segmentLabels": [
+            "Ultra"
+          ]
+        },
+        "eligibilitySchemaVersion": 1,
+        "eligibilityRule": {
+          "all": []
+        }
+      },
+      "catalogStatus": "invalid",
+      "runtimeStatus": "invalid",
+      "errorContains": "non-empty array",
+      "eligibleForProbe": false
+    },
+    {
+      "name": "unknown node rejected",
+      "campaign": {
+        "cardProductIds": [
+          "teb-infinite"
+        ],
+        "eligibility": {
+          "segmentLabels": [
+            "Ultra"
+          ]
+        },
+        "eligibilitySchemaVersion": 1,
+        "eligibilityRule": {
+          "segment": "ultra"
+        }
+      },
+      "catalogStatus": "invalid",
+      "runtimeStatus": "invalid",
+      "errorContains": "exactly one of",
+      "eligibleForProbe": false
+    },
+    {
+      "name": "display label instead of code rejected",
+      "campaign": {
+        "cardProductIds": [
+          "teb-infinite"
+        ],
+        "eligibility": {
+          "segmentLabels": [
+            "Ultra"
+          ]
+        },
+        "eligibilitySchemaVersion": 1,
+        "eligibilityRule": {
+          "attr": {
+            "dim": "teb_tier",
+            "in": [
+              "Ultra / 10 milyon TL+"
+            ]
+          }
+        }
+      },
+      "catalogStatus": "invalid",
+      "runtimeStatus": "invalid",
+      "errorContains": "attr",
+      "eligibleForProbe": false
+    },
+    {
+      "name": "typo key in payWith rejected",
+      "campaign": {
+        "cardProductIds": [
+          "teb-infinite"
+        ],
+        "eligibility": {
+          "segmentLabels": [
+            "Ultra"
+          ]
+        },
+        "eligibilitySchemaVersion": 1,
+        "eligibilityRule": {
+          "payWith": {
+            "card": [
+              "teb-infinite"
+            ]
+          }
+        }
+      },
+      "catalogStatus": "invalid",
+      "runtimeStatus": "invalid",
+      "errorContains": "cards and/or banks",
+      "eligibleForProbe": false
+    },
+    {
+      "name": "extra key in payWith rejected",
+      "campaign": {
+        "cardProductIds": [
+          "teb-infinite"
+        ],
+        "eligibility": {
+          "segmentLabels": [
+            "Ultra"
+          ]
+        },
+        "eligibilitySchemaVersion": 1,
+        "eligibilityRule": {
+          "payWith": {
+            "cards": [
+              "teb-infinite"
+            ],
+            "segment": "x"
+          }
+        }
+      },
+      "catalogStatus": "invalid",
+      "runtimeStatus": "invalid",
+      "errorContains": "unknown key",
+      "eligibleForProbe": false
+    },
+    {
+      "name": "non-string code rejected",
+      "campaign": {
+        "cardProductIds": [
+          "teb-infinite"
+        ],
+        "eligibility": {
+          "segmentLabels": [
+            "Ultra"
+          ]
+        },
+        "eligibilitySchemaVersion": 1,
+        "eligibilityRule": {
+          "payWith": {
+            "cards": [
+              12
+            ]
+          }
+        }
+      },
+      "catalogStatus": "invalid",
+      "runtimeStatus": "invalid",
+      "errorContains": "array of codes",
+      "eligibleForProbe": false
+    },
+    {
+      "name": "always:false rejected",
+      "campaign": {
+        "cardProductIds": [
+          "teb-infinite"
+        ],
+        "eligibility": {
+          "segmentLabels": [
+            "Ultra"
+          ]
+        },
+        "eligibilitySchemaVersion": 1,
+        "eligibilityRule": {
+          "always": false
+        }
+      },
+      "catalogStatus": "invalid",
+      "runtimeStatus": "invalid",
+      "errorContains": "must be true",
+      "eligibleForProbe": false
+    },
+    {
+      "name": "legacySegmentLabel not allowed in published rule",
+      "campaign": {
+        "cardProductIds": [
+          "teb-infinite"
+        ],
+        "eligibility": {
+          "segmentLabels": [
+            "Ultra"
+          ]
+        },
+        "eligibilitySchemaVersion": 1,
+        "eligibilityRule": {
+          "legacySegmentLabel": {
+            "in": [
+              "Ultra"
+            ]
+          }
+        }
+      },
+      "catalogStatus": "invalid",
+      "runtimeStatus": "invalid",
+      "errorContains": "compatibility-only",
+      "eligibleForProbe": false
+    },
+    {
+      "name": "unknown dimension rejected by guard (inert at runtime)",
+      "campaign": {
+        "cardProductIds": [
+          "teb-infinite"
+        ],
+        "eligibility": {
+          "segmentLabels": [
+            "Ultra"
+          ]
+        },
+        "eligibilitySchemaVersion": 1,
+        "eligibilityRule": {
+          "all": [
+            {
+              "payWith": {
+                "cards": [
+                  "teb-infinite"
+                ]
+              }
+            },
+            {
+              "attr": {
+                "dim": "teb_level",
+                "in": [
+                  "ultra"
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "catalogStatus": "invalid",
+      "runtimeStatus": "valid",
+      "errorContains": "unknown dimension",
+      "eligibleForProbe": false
+    },
+    {
+      "name": "unknown option rejected by guard",
+      "campaign": {
+        "cardProductIds": [
+          "teb-infinite"
+        ],
+        "eligibility": {
+          "segmentLabels": [
+            "Ultra"
+          ]
+        },
+        "eligibilitySchemaVersion": 1,
+        "eligibilityRule": {
+          "all": [
+            {
+              "payWith": {
+                "cards": [
+                  "teb-infinite"
+                ]
+              }
+            },
+            {
+              "attr": {
+                "dim": "teb_tier",
+                "in": [
+                  "galaxy"
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "catalogStatus": "invalid",
+      "runtimeStatus": "valid",
+      "errorContains": "unknown option",
+      "eligibleForProbe": false
+    },
+    {
+      "name": "unknown card product is a warning, not an error",
+      "campaign": {
+        "cardProductIds": [
+          "teb-infinite"
+        ],
+        "eligibility": {
+          "segmentLabels": [
+            "Ultra"
+          ]
+        },
+        "eligibilitySchemaVersion": 1,
+        "eligibilityRule": {
+          "all": [
+            {
+              "payWith": {
+                "banks": [
+                  "qnb"
+                ]
+              }
+            },
+            {
+              "not": {
+                "payWith": {
+                  "cards": [
+                    "qnb-fix"
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      },
+      "catalogStatus": "valid",
+      "runtimeStatus": "valid",
+      "errorContains": null,
+      "eligibleForProbe": false
+    },
+    {
+      "name": "rewardVariants without version rejected",
+      "campaign": {
+        "cardProductIds": [
+          "teb-infinite"
+        ],
+        "eligibility": {
+          "segmentLabels": [
+            "Ultra"
+          ]
+        },
+        "rewardVariants": [
+          {
+            "when": {
+              "attr": {
+                "dim": "teb_tier",
+                "in": [
+                  "ultra"
+                ]
+              }
+            },
+            "rewardRule": {
+              "kind": "percent",
+              "rate": 0.2
+            }
+          },
+          {
+            "when": {
+              "always": true
+            },
+            "rewardRule": {
+              "kind": "percent",
+              "rate": 0.05
+            }
+          }
+        ]
+      },
+      "catalogStatus": "invalid",
+      "runtimeStatus": "invalid",
+      "errorContains": "eligibilitySchemaVersion: missing",
+      "eligibleForProbe": false
+    },
+    {
+      "name": "rewardVariants with v1 and legacy eligibility accepted",
+      "campaign": {
+        "cardProductIds": [
+          "teb-infinite"
+        ],
+        "eligibility": {
+          "segmentLabels": [
+            "Ultra"
+          ]
+        },
+        "eligibilitySchemaVersion": 1,
+        "rewardVariants": [
+          {
+            "when": {
+              "attr": {
+                "dim": "teb_tier",
+                "in": [
+                  "ultra"
+                ]
+              }
+            },
+            "rewardRule": {
+              "kind": "percent",
+              "rate": 0.2
+            }
+          },
+          {
+            "when": {
+              "always": true
+            },
+            "rewardRule": {
+              "kind": "percent",
+              "rate": 0.05
+            }
+          }
+        ]
+      },
+      "catalogStatus": "valid",
+      "runtimeStatus": "valid",
+      "errorContains": null,
+      "eligibleForProbe": true
+    },
+    {
+      "name": "empty rewardVariants rejected",
+      "campaign": {
+        "cardProductIds": [
+          "teb-infinite"
+        ],
+        "eligibility": {
+          "segmentLabels": [
+            "Ultra"
+          ]
+        },
+        "eligibilitySchemaVersion": 1,
+        "eligibilityRule": {
+          "all": [
+            {
+              "payWith": {
+                "cards": [
+                  "teb-infinite"
+                ]
+              }
+            },
+            {
+              "attr": {
+                "dim": "teb_tier",
+                "in": [
+                  "ultra"
+                ]
+              }
+            }
+          ]
+        },
+        "rewardVariants": []
+      },
+      "catalogStatus": "invalid",
+      "runtimeStatus": "invalid",
+      "errorContains": "non-empty array",
+      "eligibleForProbe": false
+    },
+    {
+      "name": "variant without when rejected",
+      "campaign": {
+        "cardProductIds": [
+          "teb-infinite"
+        ],
+        "eligibility": {
+          "segmentLabels": [
+            "Ultra"
+          ]
+        },
+        "eligibilitySchemaVersion": 1,
+        "eligibilityRule": {
+          "all": [
+            {
+              "payWith": {
+                "cards": [
+                  "teb-infinite"
+                ]
+              }
+            },
+            {
+              "attr": {
+                "dim": "teb_tier",
+                "in": [
+                  "ultra"
+                ]
+              }
+            }
+          ]
+        },
+        "rewardVariants": [
+          {
+            "rewardRule": {
+              "kind": "percent",
+              "rate": 0.1
+            }
+          }
+        ]
+      },
+      "catalogStatus": "invalid",
+      "runtimeStatus": "invalid",
+      "errorContains": "when: required",
+      "eligibleForProbe": false
+    },
+    {
+      "name": "variant with null when rejected",
+      "campaign": {
+        "cardProductIds": [
+          "teb-infinite"
+        ],
+        "eligibility": {
+          "segmentLabels": [
+            "Ultra"
+          ]
+        },
+        "eligibilitySchemaVersion": 1,
+        "eligibilityRule": {
+          "all": [
+            {
+              "payWith": {
+                "cards": [
+                  "teb-infinite"
+                ]
+              }
+            },
+            {
+              "attr": {
+                "dim": "teb_tier",
+                "in": [
+                  "ultra"
+                ]
+              }
+            }
+          ]
+        },
+        "rewardVariants": [
+          {
+            "when": null,
+            "rewardRule": {
+              "kind": "percent",
+              "rate": 0.1
+            }
+          }
+        ]
+      },
+      "catalogStatus": "invalid",
+      "runtimeStatus": "invalid",
+      "errorContains": "node must be an object",
+      "eligibleForProbe": false
+    },
+    {
+      "name": "variant with malformed when rejected",
+      "campaign": {
+        "cardProductIds": [
+          "teb-infinite"
+        ],
+        "eligibility": {
+          "segmentLabels": [
+            "Ultra"
+          ]
+        },
+        "eligibilitySchemaVersion": 1,
+        "eligibilityRule": {
+          "all": [
+            {
+              "payWith": {
+                "cards": [
+                  "teb-infinite"
+                ]
+              }
+            },
+            {
+              "attr": {
+                "dim": "teb_tier",
+                "in": [
+                  "ultra"
+                ]
+              }
+            }
+          ]
+        },
+        "rewardVariants": [
+          {
+            "when": {
+              "attr": {
+                "dim": "teb_tier"
+              }
+            },
+            "rewardRule": {
+              "kind": "percent",
+              "rate": 0.1
+            }
+          }
+        ]
+      },
+      "catalogStatus": "invalid",
+      "runtimeStatus": "invalid",
+      "errorContains": "attr",
+      "eligibleForProbe": false
+    },
+    {
+      "name": "variant without rewardRule rejected",
+      "campaign": {
+        "cardProductIds": [
+          "teb-infinite"
+        ],
+        "eligibility": {
+          "segmentLabels": [
+            "Ultra"
+          ]
+        },
+        "eligibilitySchemaVersion": 1,
+        "eligibilityRule": {
+          "all": [
+            {
+              "payWith": {
+                "cards": [
+                  "teb-infinite"
+                ]
+              }
+            },
+            {
+              "attr": {
+                "dim": "teb_tier",
+                "in": [
+                  "ultra"
+                ]
+              }
+            }
+          ]
+        },
+        "rewardVariants": [
+          {
+            "when": {
+              "always": true
+            }
+          }
+        ]
+      },
+      "catalogStatus": "invalid",
+      "runtimeStatus": "invalid",
+      "errorContains": "rewardRule: object required",
+      "eligibleForProbe": false
+    },
+    {
+      "name": "no new rule: legacy adapter",
+      "campaign": {
+        "cardProductIds": [
+          "teb-infinite"
+        ],
+        "eligibility": {
+          "segmentLabels": [
+            "Ultra"
+          ]
+        }
+      },
+      "catalogStatus": "legacy",
+      "runtimeStatus": "legacy",
+      "errorContains": null,
+      "eligibleForProbe": true
+    },
+    {
+      "name": "version without any new-schema field: legacy adapter",
+      "campaign": {
+        "cardProductIds": [
+          "teb-infinite"
+        ],
+        "eligibility": {
+          "segmentLabels": [
+            "Ultra"
+          ]
+        },
+        "eligibilitySchemaVersion": 7
+      },
+      "catalogStatus": "legacy",
+      "runtimeStatus": "legacy",
+      "errorContains": null,
+      "eligibleForProbe": true
+    }
+  ]
+}
