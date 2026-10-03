@@ -8,40 +8,124 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Kampanya Avcısı" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>Banka Kampanya Avcısı</title>
+  <title>Hangi Kart? · Kampanya Avcısı</title>
   <link rel="manifest" href="./manifest.webmanifest" />
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
   <header class="topbar">
-    <div><div class="eyebrow">Kişisel karar destek</div><h1>Banka Kampanya Avcısı</h1></div>
-    <div class="topbar-actions"><span id="networkBadge" class="network-badge">Çevrimiçi</span><button id="installPwaBtn" class="secondary install-btn" hidden>Telefona kur</button><div class="privacy">Kart numarası tutulmaz · <span id="runtimeVersion">v1.2.2-supabase</span></div></div>
+    <div class="brand">
+      <div class="eyebrow">Kampanya Avcısı</div>
+      <h1 id="pageTitle">Hangi Kart?</h1>
+    </div>
+    <div class="topbar-actions"><span id="networkBadge" class="network-badge">Çevrimiçi</span><button id="installPwaBtn" class="secondary install-btn" hidden>Telefona kur</button></div>
   </header>
 
-  <nav class="nav">
-    <button class="nav-btn active" data-view="dashboard">Özet</button>
-    <button class="nav-btn" data-view="campaigns">Kampanyalar</button>
-    <button class="nav-btn" data-view="recommend">Hangi Kart?</button>
-    <button class="nav-btn" data-view="privateCampaign">Özel Kampanya Ekle</button>
-    <button class="nav-btn" data-view="settings">Ayarlar</button>
+  <nav class="nav" aria-label="Ana menü">
+    <a class="nav-btn nav-primary active" href="#/hangi-kart" data-tab="recommend" aria-current="page">
+      <svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><rect x="2.5" y="5" width="19" height="14" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M2.5 9.5h19" stroke="currentColor" stroke-width="1.8"/><path d="M6 15h5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      <span>Hangi Kart?</span>
+    </a>
+    <a class="nav-btn" href="#/kampanyalar" data-tab="campaigns">
+      <svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><path d="M4 12.5V5a1 1 0 0 1 1-1h7.5L20 11.5 12.5 19z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><circle cx="8.5" cy="8.5" r="1.4" fill="currentColor"/></svg>
+      <span>Kampanyalar</span>
+    </a>
+    <a class="nav-btn" href="#/profil" data-tab="profile">
+      <svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><circle cx="12" cy="8.5" r="3.6" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M4.5 20c1.3-3.6 4.2-5.4 7.5-5.4s6.2 1.8 7.5 5.4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      <span>Profil</span>
+    </a>
   </nav>
 
   <main>
-    <section id="dashboard" class="view active">
-      <div class="notice live-notice"><strong>Canlı katalog:</strong> Resmi banka/kart siteleri 08:00 ve 18:00’de taranır. “Şimdi yenile” ile anlık kontrol yapabilirsin. Otomatik çözümlenemeyen kampanyalar kaybolmaz; resmi detay bağlantısıyla bilgi amaçlı gösterilir.</div>
-      <div id="catalogHealth" class="notice catalog-health">Canlı katalog durumu alınıyor…</div>
-      <div class="stats">
-        <div class="stat"><span id="cardCount">0</span><small>Aktif kart</small></div>
-        <div class="stat"><span id="campaignCount">0</span><small>Kampanya</small></div>
-        <div class="stat"><span id="staleCount">0</span><small>Eski limit</small></div>
-        <div class="stat"><span id="unknownCount">0</span><small>Limit bilinmiyor</small></div>
+    <!-- ============================ v1.4 HESAP AKIŞI ============================ -->
+    <section id="authView" class="view">
+      <div class="auth-card">
+        <div class="auth-brand"><div class="eyebrow">Kampanya Avcısı</div><h2 id="authTitle">Giriş yap</h2>
+          <p class="muted">Kartlarını ve segmentlerini bir kez tanımla; her açılışta profilin hazır gelsin. Kart numarası, CVV veya banka şifresi istenmez.</p></div>
+        <form id="authForm" class="form-card" autocomplete="on">
+          <label>E-posta<input id="authEmail" type="email" autocomplete="email" inputmode="email" required placeholder="eposta@ornek.com" /></label>
+          <label id="authPasswordLabel">Şifre<input id="authPassword" type="password" autocomplete="current-password" minlength="8" placeholder="En az 8 karakter" /></label>
+          <button id="authSubmitBtn" type="submit" class="primary big-primary">Giriş yap</button>
+          <div class="auth-links">
+            <button id="authModeToggle" type="button" class="link-button">Hesabın yok mu? Hesap oluştur</button>
+            <button id="authForgotBtn" type="button" class="link-button">Şifremi unuttum</button>
+          </div>
+          <p id="authStatus" class="muted" role="status"></p>
+        </form>
       </div>
-      <h2>Kartlarım</h2>
-      <div id="cardsGrid" class="cards-grid"></div>
     </section>
 
+    <section id="onboardingView" class="view">
+      <div class="onboarding">
+        <ol id="onboardingSteps" class="stepper" aria-label="Profil adımları">
+          <li data-step="banks">Bankalar</li><li data-step="cards">Kartlar</li><li data-step="attributes">Segmentler</li><li data-step="review">Tamamla</li>
+        </ol>
+        <div id="onboardingBody" class="onboarding-body"></div>
+        <p id="onboardingStatus" class="muted" role="status"></p>
+        <div class="onboarding-actions">
+          <button id="onbBack" type="button" class="secondary">Geri</button>
+          <button id="onbNext" type="button" class="primary">Devam</button>
+          <button id="onbFinish" type="button" class="primary" hidden>Profili tamamla</button>
+        </div>
+        <button id="onbSignOut" type="button" class="link-button">Farklı hesapla giriş yap</button>
+      </div>
+    </section>
+
+    <section id="accountStatusView" class="view">
+      <div class="settings-card account-status">
+        <p id="accountStatusText">Profil yükleniyor…</p>
+        <div class="button-row">
+          <button id="accountRetryBtn" type="button" class="primary" hidden>Tekrar dene</button>
+          <button id="accountStatusSignOut" type="button" class="secondary" hidden>Çıkış yap</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================ HANGİ KART? (ana ekran) ============================ -->
+    <section id="recommend" class="view active">
+      <div class="hero-card">
+        <h2>Bu harcamada hangi kartını kullanmalısın?</h2>
+        <p>İşyerini ve tutarı yaz; kartlarının kampanyalarını, segment avantajlarını ve normal kazanımlarını karşılaştıralım.</p>
+      </div>
+      <form id="recommendForm" class="form-card recommend-form">
+        <label>İşyeri / açıklama<input id="merchant" placeholder="Örn. Migros, restoran, otel" autocomplete="off" /></label>
+        <label>Tutar (TL)<input id="amount" inputmode="decimal" placeholder="15000" required /></label>
+        <label>Kategori
+          <select id="category">
+            <option value="auto" selected>Otomatik belirle</option><option value="restoran">Restoran</option><option value="market">Market</option><option value="giyim">Giyim</option>
+            <option value="otel">Otel</option><option value="seyahat">Seyahat / Uçak</option><option value="akaryakit">Akaryakıt</option><option value="e-ticaret">E-ticaret</option>
+            <option value="egitim">Eğitim / Kırtasiye</option><option value="saglik">Sağlık</option><option value="sigorta">Sigorta / BES</option><option value="otomotiv">Otomotiv / Servis</option>
+            <option value="ulasim">Toplu taşıma / Ulaşım</option><option value="dijital">Dijital platform</option><option value="elektronik">Elektronik / Beyaz eşya</option><option value="ev">Mobilya / Yapı market</option>
+            <option value="eglence">Sinema / Etkinlik</option><option value="otopark">Otopark</option><option value="all">Diğer</option>
+          </select>
+        </label>
+        <div class="two-col">
+          <label>İşlem yeri
+            <select id="locationScope"><option value="domestic">Yurt içi</option><option value="international">Yurt dışı</option></select>
+          </label>
+          <label>Ödeme kanalı
+            <select id="paymentChannel"><option value="physical">Mağaza (POS)</option><option value="online">İnternet / uygulama</option></select>
+          </label>
+        </div>
+        <button type="submit" class="primary big-primary">Kartları karşılaştır</button>
+        <details class="advanced">
+          <summary>Sonuç hatalı mı görünüyor?</summary>
+          <p class="muted">“Tanı logunu indir” son sorgunun hangi kampanyaları neden kabul/reddettiğini JSON olarak verir. Kart numarası veya banka giriş bilgisi loglanmaz.</p>
+          <button type="button" id="downloadQueryLogBtn" class="secondary">Tanı logunu indir</button>
+        </details>
+        <p class="muted small">Hesap yalnızca bilinen kampanyalara ve bu dönem doğruladığın kalan limitlere göre yapılır.</p>
+      </form>
+      <div id="recommendResults" class="results"></div>
+    </section>
+
+    <!-- ============================ KAMPANYALAR ============================ -->
     <section id="campaigns" class="view">
-      <div class="section-head"><div><h2>Kampanya kataloğu</h2><p>Kategoriyi seç; aktif kampanyalar kullandığın kartlara göre gruplanır. Bir kampanyaya tıklayınca işyeri/istasyon kapsamı ve tüm bilinen koşulları açılır.</p></div></div>
+      <div class="screen-head">
+        <div><h2>Kampanyalar</h2><p class="muted">Kategori seç; aktif kampanyalar kartlarına göre gruplanır. Bir kampanyaya dokununca tüm koşulları açılır.</p></div>
+        <a id="addCampaignBtn" class="add-action" href="#/kampanyalar/ekle" aria-label="Kampanya ekle" title="Kampanya ekle">
+          <svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+        </a>
+      </div>
       <div class="campaign-browser-toolbar form-card compact-form">
         <label>Kategori
           <select id="campaignBrowseCategory"></select>
@@ -58,39 +142,10 @@
       </div>
     </section>
 
-    <section id="recommend" class="view">
-      <h2>Hangi kart?</h2>
-      <p class="muted">Sistem yalnızca bildiği kampanyalara ve güncellediğin kalan limitlere göre hesap yapar.</p>
-      <form id="recommendForm" class="form-card">
-        <label>İşyeri / açıklama<input id="merchant" placeholder="Örn. Migros, restoran, otel" /></label>
-        <label>Kategori
-          <select id="category">
-            <option value="auto" selected>Otomatik belirle</option><option value="restoran">Restoran</option><option value="market">Market</option><option value="giyim">Giyim</option>
-            <option value="otel">Otel</option><option value="seyahat">Seyahat / Uçak</option><option value="akaryakit">Akaryakıt</option><option value="e-ticaret">E-ticaret</option>
-            <option value="egitim">Eğitim / Kırtasiye</option><option value="saglik">Sağlık</option><option value="sigorta">Sigorta / BES</option><option value="otomotiv">Otomotiv / Servis</option>
-            <option value="ulasim">Toplu taşıma / Ulaşım</option><option value="dijital">Dijital platform</option><option value="elektronik">Elektronik / Beyaz eşya</option><option value="ev">Mobilya / Yapı market</option>
-            <option value="eglence">Sinema / Etkinlik</option><option value="otopark">Otopark</option><option value="all">Diğer</option>
-          </select>
-        </label>
-        <label>İşlem yeri
-          <select id="locationScope"><option value="domestic">Yurt içi</option><option value="international">Yurt dışı</option></select>
-        </label>
-        <label>Ödeme kanalı
-          <select id="paymentChannel"><option value="physical">Fiziki POS / mağaza</option><option value="online">İnternet / uygulama</option></select>
-        </label>
-        <label>Tutar (TL)<input id="amount" inputmode="decimal" placeholder="15000" required /></label>
-        <div class="button-row">
-          <button type="submit" class="primary">Kartları karşılaştır</button>
-          <button type="button" id="downloadQueryLogBtn" class="secondary">Tanı logunu indir</button>
-        </div>
-        <p class="muted">Bir sonuç hatalı görünürse “Tanı logunu indir” ile son sorgunun hangi kampanyaları neden kabul/reddettiğini JSON olarak alabilirsin. Kart numarası veya banka giriş bilgisi loglanmaz.</p>
-      </form>
-      <div id="recommendResults" class="results"></div>
-    </section>
-
-
+    <!-- Kampanya ekle (eski "Ekle" sekmesi; artık Kampanyalar → +) -->
     <section id="privateCampaign" class="view">
-      <h2>Özel kampanya ekle</h2>
+      <a class="back-link" href="#/kampanyalar">‹ Kampanyalar</a>
+      <h2>Kampanya ekle</h2>
       <p class="muted">Mobil uygulamada yalnız sana görünen kampanya metnini buraya yapıştır. Kart numarası veya banka giriş bilgisi girme.</p>
       <form id="privateCampaignForm" class="form-card">
         <label>Banka / kart
@@ -111,28 +166,111 @@
       </form>
     </section>
 
-    <section id="settings" class="view">
-      <h2>Ayarlar ve yedek</h2>
-      <div class="settings-card">
-        <h3>Kazanç profili</h3>
+    <!-- ============================ PROFİL ============================ -->
+    <section id="profile" class="view">
+      <h2 class="sr-only">Profil</h2>
+      <nav class="menu-list" aria-label="Profil bölümleri">
+        <a class="menu-item" href="#/profil/kartlar"><span class="menu-text"><strong>Bankalarım ve Kartlarım</strong><small>Kullandığın bankalar ve kartlar</small></span><span class="chev">›</span></a>
+        <a class="menu-item" href="#/profil/musteri"><span class="menu-text"><strong>Müşteri Profili</strong><small>Segmentler, varlık bantları, sadakat statüleri</small></span><span class="chev">›</span></a>
+        <a class="menu-item" href="#/profil/tercihler"><span class="menu-text"><strong>Tercihler</strong><small>Limit uyarıları ve uygulama kurulumu</small></span><span class="chev">›</span></a>
+        <a class="menu-item" href="#/profil/veriler"><span class="menu-text"><strong>Veriler ve Özet</strong><small>Katalog durumu, özet, yenileme ve yedek</small></span><span class="chev">›</span></a>
+        <a class="menu-item" href="#/profil/hesap"><span class="menu-text"><strong>Hesap</strong><small>Giriş, oturum ve bulut senkronu</small></span><span class="chev">›</span></a>
+        <a class="menu-item" href="#/profil/info"><span class="menu-text"><strong>Uygulama Bilgisi</strong><small>Sürüm, yenilikler ve katalog durumu</small></span><span class="chev">›</span></a>
+      </nav>
+    </section>
+
+    <section id="profileCards" class="view">
+      <a class="back-link" href="#/profil">‹ Profil</a>
+      <h2>Bankalarım ve Kartlarım</h2>
+      <div id="profileCardsEditor" class="profile-editor" hidden></div>
+      <div id="profileCardsSaveBar" class="save-bar" hidden><span id="profileCardsStatus" class="muted" role="status"></span><button id="profileCardsSave" type="button" class="primary">Kaydet</button></div>
+      <div id="legacyCardsInfo">
+        <div id="cardsGrid" class="cards-grid"></div>
+        <p class="muted small">Bu cihaz eski tek-kullanıcı modunda çalışıyor; kart listesi sabit başlangıç verisidir.</p>
+      </div>
+    </section>
+
+    <section id="profileSegments" class="view">
+      <a class="back-link" href="#/profil">‹ Profil</a>
+      <h2>Müşteri Profili</h2>
+      <div id="profileAttributesEditor" class="profile-editor" hidden></div>
+      <div id="profileAttributesSaveBar" class="save-bar" hidden><span id="profileAttributesStatus" class="muted" role="status"></span><button id="profileAttributesSave" type="button" class="primary">Kaydet</button></div>
+      <div id="legacySegmentSelectors" class="settings-card">
+        <h3>Segment, varlık bandı ve statüler</h3>
         <label>THY Miles&Smiles statüsü<select id="thyStatus"><option value="classic">Classic</option><option value="classic_plus">Classic Plus</option><option value="elite">Elite</option><option value="elite_plus">Elite Plus</option></select></label>
         <label>QNB müşteri segmenti<select id="qnbSegment"><option value="other">Diğer / QNB First altı</option><option value="first">QNB First</option><option value="first_plus">QNB First Plus</option><option value="private" selected>QNB Private</option></select></label>
         <label>Akbank Wings varlık programı<select id="wingsTier"><option value="standard">Classic / 1 milyon TL altı</option><option value="black">Black / 1–2 milyon TL</option><option value="black_plus" selected>Black Plus / 2 milyon TL+</option></select></label>
-        <label>Maximiles Black varlık bandı<select id="maximilesBand"><option value="under_1m">1 milyon TL altı</option><option value="1m_4m">1–4 milyon TL</option><option value="4m_8m" selected>4–8 milyon TL</option><option value="8m_plus">8 milyon TL+</option></select></label>
-        <label>Yapı Kredi Crystal varlık bandı<select id="crystalBand"><option value="under_1m" selected>1 milyon TL altı</option><option value="1m_6m">1–6 milyon TL</option><option value="6m_10m">6–10 milyon TL</option><option value="10m_plus">10 milyon TL+</option></select></label>
+        <label>Maximiles Black varlık bandı<select id="maximilesBand"><!-- seçenekler ölçüt kayıtlarından (profile-catalog.js) doldurulur --></select></label>
+        <label>Yapı Kredi Crystal varlık bandı<select id="crystalBand"><!-- seçenekler ölçüt kayıtlarından (profile-catalog.js) doldurulur --></select></label>
         <label>Yapı Kredi Crystal kart tipi<select id="crystalCardType"><option value="crystal" selected>Crystal</option><option value="metal_crystal">Metal Crystal</option><option value="crystal_and_metal">Crystal + Metal Crystal (ikisi birden)</option></select></label>
         <label>TEB Infinite paket seviyesi<select id="tebTier"><option value="standard">Standart / 1 milyon TL'ye kadar</option><option value="plus">Plus / 1–5 milyon TL</option><option value="premium">Premium / 5–10 milyon TL</option><option value="ultra" selected>Ultra / 10 milyon TL+</option></select></label>
-        <p class="muted">Tüm segmentler değiştirilebilir. Seçim değiştiğinde kart profilin, kampanya uygunluğu ve segment bazlı limitler yeniden hesaplanır; daha önce elle doğrulanmış kalan limitler yanlış kullanılmasın diye ilgili kampanyalarda yeniden doğrulama istenir.</p>
+        <p class="muted">Seçim değişince kampanya uygunluğu ve segment bazlı limitler yeniden hesaplanır; ilgili kampanyalarda kalan limit yeniden doğrulama ister.</p>
       </div>
+    </section>
+
+    <section id="profilePrefs" class="view">
+      <a class="back-link" href="#/profil">‹ Profil</a>
+      <h2>Tercihler</h2>
       <div class="settings-card">
         <label>Limit bilgisini kaç gün sonra “eski” sayalım?<input id="staleDays" type="number" min="0" max="30" /></label>
         <p class="muted">Bu sadece uyarı üretir; kullanıcı doğrulaması her zaman önceliklidir.</p>
       </div>
+      <div class="settings-card pwa-card">
+        <h3>Mobil uygulama</h3>
+        <p id="pwaInstallHint" class="muted">Android/iPhone'da HTTPS üzerinden açıldığında ana ekrana uygulama olarak kurulabilir.</p>
+        <button id="settingsInstallPwaBtn" type="button" class="primary" hidden>Uygulamayı telefona kur</button>
+      </div>
+    </section>
 
+    <!-- Veriler ve Özet (eski "Özet" sekmesi; id="dashboard" korunur) -->
+    <section id="dashboard" class="view">
+      <a class="back-link" href="#/profil">‹ Profil</a>
+      <h2>Veriler ve Özet</h2>
+      <div class="notice live-notice"><strong>Canlı katalog:</strong> Resmi banka/kart siteleri 08:00 ve 18:00’de taranır. Otomatik çözümlenemeyen kampanyalar kaybolmaz; resmi detay bağlantısıyla bilgi amaçlı gösterilir.</div>
+      <div id="catalogHealth" class="notice catalog-health">Canlı katalog durumu alınıyor…</div>
+      <div class="stats">
+        <div class="stat"><span id="cardCount">0</span><small>Aktif kart</small></div>
+        <div class="stat"><span id="campaignCount">0</span><small>Kampanya</small></div>
+        <div class="stat"><span id="staleCount">0</span><small>Eski limit</small></div>
+        <div class="stat"><span id="unknownCount">0</span><small>Limit bilinmiyor</small></div>
+      </div>
+      <div class="settings-card refresh-card">
+        <h3>Kampanya taraması</h3>
+        <p><strong>Otomatik plan:</strong> her gün 08:00 ve 18:00 (Europe/Istanbul)</p>
+        <div class="button-row">
+          <button id="refreshCampaignsBtn" class="primary">Şimdi yenile</button>
+          <span id="refreshStatus" class="muted">Henüz durum alınmadı.</span>
+        </div>
+      </div>
+      <div class="settings-card">
+        <h3>Yerel veri ve yedek</h3>
+        <p class="muted">Kişisel limit/katılım tercihleri bu cihazın tarayıcısında tutulur; Hesap ekranından buluta gönderilebilir.</p>
+        <div class="button-row">
+          <button id="exportBtn" class="secondary">Yedeği dışa aktar</button>
+          <label class="file-button secondary">Yedek içe aktar<input id="importFile" type="file" accept="application/json" hidden /></label>
+          <button id="resetBtn" class="danger-button">Başlangıç verisine dön</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="profileAccount" class="view">
+      <a class="back-link" href="#/profil">‹ Profil</a>
+      <h2>Hesap</h2>
+      <div id="accountSummaryCard" class="settings-card" hidden>
+        <h3>Hesabın</h3>
+        <dl id="accountSummary" class="info-rows"></dl>
+        <form id="changePasswordForm" class="inline-form">
+          <label>Yeni şifre<input id="changePasswordValue" type="password" autocomplete="new-password" minlength="8" placeholder="En az 8 karakter" /></label>
+          <button type="submit" class="secondary">Şifreyi değiştir</button>
+        </form>
+        <p id="changePasswordStatus" class="muted" role="status"></p>
+        <button id="accountSignOutBtn" type="button" class="danger-button">Çıkış yap</button>
+      </div>
       <div class="settings-card cloud-card">
-        <h3>Bulut ve cihazlar arası senkron</h3>
-        <p class="muted">Supabase bağlandığında segmentlerin, kalan limitlerin, katılım durumların ve özel kampanyaların cihazlar arasında taşınabilir. Kart numarası/CVV/banka şifresi tutulmaz.</p>
+        <h3>Bulut hesabı ve cihazlar arası senkron</h3>
+        <p class="muted">Segmentlerin, kalan limitlerin, katılım durumların ve özel kampanyaların cihazlar arasında taşınabilir. Kart numarası/CVV/banka şifresi tutulmaz.</p>
         <div id="cloudConfigStatus" class="catalog-status">Bulut bağlantısı kontrol ediliyor…</div>
+        <div id="legacyCloudAuth">
         <div class="cloud-auth-grid">
           <label>E-posta<input id="cloudEmail" type="email" autocomplete="email" placeholder="eposta@ornek.com" /></label>
           <label>Şifre<input id="cloudPassword" type="password" autocomplete="current-password" placeholder="En az 8 karakter" /></label>
@@ -142,34 +280,25 @@
           <button id="cloudSignUpBtn" type="button" class="secondary">Hesap oluştur</button>
           <button id="cloudSignOutBtn" type="button" class="secondary" hidden>Çıkış</button>
         </div>
+        </div>
         <div class="button-row cloud-sync-actions">
           <button id="cloudUploadBtn" type="button" class="secondary" disabled>Bu cihazı buluta gönder</button>
           <button id="cloudDownloadBtn" type="button" class="secondary" disabled>Buluttan bu cihaza al</button>
         </div>
         <p id="cloudSyncStatus" class="muted"></p>
       </div>
-      <div class="settings-card pwa-card">
-        <h3>Mobil uygulama</h3>
-        <p id="pwaInstallHint" class="muted">Android/iPhone'da HTTPS üzerinden açıldığında ana ekrana uygulama olarak kurulabilir.</p>
-        <button id="settingsInstallPwaBtn" type="button" class="primary" hidden>Uygulamayı telefona kur</button>
-      </div>
-      <div class="settings-card refresh-card">
-        <h3>Kampanya taraması</h3>
-        <p><strong>Otomatik plan:</strong> her gün 08:00 ve 18:00 (Europe/Istanbul)</p>
-        <p class="muted">Manuel yenileme de aynı detay/işyeri kontrol hattını çalıştırır. Uygulama açıkken yerel servis üzerinden çalışır; Windows zamanlanmış görevini kurarsan uygulama kapalıyken de 08:00 ve 18:00 taraması yapılabilir.</p>
-        <div class="button-row">
-          <button id="refreshCampaignsBtn" class="primary">Şimdi yenile</button>
-          <span id="refreshStatus" class="muted">Henüz durum alınmadı.</span>
-        </div>
+    </section>
+
+    <section id="profileInfo" class="view">
+      <a class="back-link" href="#/profil">‹ Profil</a>
+      <h2>Uygulama Bilgisi</h2>
+      <div class="settings-card">
+        <div class="info-version">Sürüm <span id="runtimeVersion">v1.4.3</span></div>
+        <dl id="infoRows" class="info-rows"></dl>
       </div>
       <div class="settings-card">
-        <h3>Yerel veri</h3>
-        <p class="muted">Kampanya kataloğu yerel servis tarafından tutulur; kişisel limit/katılım tercihleri bu cihazın tarayıcısında tutulur. Supabase şeması pakette hazırdır; bulut hesabı bağlandığında aynı yapı merkezi hale getirilebilir.</p>
-        <div class="button-row">
-          <button id="exportBtn" class="secondary">Yedeği dışa aktar</button>
-          <label class="file-button secondary">Yedek içe aktar<input id="importFile" type="file" accept="application/json" hidden /></label>
-          <button id="resetBtn" class="danger-button">Başlangıç verisine dön</button>
-        </div>
+        <h3>Yenilikler</h3>
+        <div id="releaseNotes" class="release-notes"></div>
       </div>
       <div class="settings-card security">
         <h3>Güvenlik sınırı</h3>

@@ -11,7 +11,7 @@ e = calculateLoyalty({ card: wings, amount: 2000, merchant: 'Da Mario', category
 assert.equal(e.amount, 3000);
 
 const max = { cardProductId: 'is-maximiles-black' };
-e = calculateLoyalty({ card: max, amount: 2000, merchant: 'Amazon', category: 'e-ticaret', locationScope: 'domestic', settings: { maximilesBand: '4m_8m' } });
+e = calculateLoyalty({ card: max, amount: 2000, merchant: 'Amazon', category: 'e-ticaret', locationScope: 'domestic', settings: { maximilesBand: 'band_3' } });
 assert.equal(e.amount, 30);
 assert.equal(e.values.travelTry, 30);
 

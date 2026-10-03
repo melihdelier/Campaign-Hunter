@@ -83,7 +83,60 @@ export async function signIn(email, password) {
   return out;
 }
 
-export function signOut() { storeSession(null); }
+// v1.4: Çıkış oturumu sunucuda da sonlandırır (bu cihazın refresh token'ı iptal edilir), sonra yerel oturumu siler.
+// Ağ hatasında bile yerel oturum silinir; kullanıcı her durumda çıkış yapmış olur.
+export async function signOut({ fetchImpl } = {}) {
+  const s = getStoredSession();
+  const c = cfg();
+  const f = fetchImpl || ((...a) => fetch(...a));
+  let serverRevoked = false;
+  if (s?.access_token && cloudConfigured()) {
+    try {
+      const res = await f(`${c.supabaseUrl}/auth/v1/logout?scope=local`, { method: 'POST', headers: authHeaders(s.access_token) });
+      serverRevoked = res.ok || res.status === 401 || res.status === 403; // süresi dolmuş token da geçersizdir
+    } catch { serverRevoked = false; }
+  }
+  storeSession(null);
+  return { serverRevoked };
+}
+
+export async function requestPasswordReset(email) {
+  if (!cloudConfigured()) throw new Error('Supabase bağlantısı yapılandırılmadı.');
+  const c = cfg();
+  const redirect = typeof location !== 'undefined' ? `${location.origin}${location.pathname}` : undefined;
+  const res = await fetch(`${c.supabaseUrl}/auth/v1/recover${redirect ? `?redirect_to=${encodeURIComponent(redirect)}` : ''}`, {
+    method: 'POST', headers: authHeaders(), body: JSON.stringify({ email })
+  });
+  if (!res.ok) { const out = await res.json().catch(() => ({})); throw new Error(out.msg || out.error_description || out.message || `Şifre sıfırlama başlatılamadı (HTTP ${res.status})`); }
+  return true;
+}
+
+export async function updatePassword(password) {
+  const s = await refreshSessionIfNeeded();
+  if (!s?.access_token) throw new Error('Önce giriş yap.');
+  const c = cfg();
+  const res = await fetch(`${c.supabaseUrl}/auth/v1/user`, { method: 'PUT', headers: authHeaders(s.access_token), body: JSON.stringify({ password }) });
+  const out = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(out.msg || out.error_description || out.message || `Şifre güncellenemedi (HTTP ${res.status})`);
+  return true;
+}
+
+// E-posta doğrulama / şifre sıfırlama bağlantısı uygulamaya #access_token=… ile döner: oturumu kaydet, adresi temizle.
+export function consumeAuthRedirect(hash) {
+  const h = String(hash || '');
+  if (!/access_token=/.test(h)) return null;
+  const params = new URLSearchParams(h.replace(/^#\/?/, ''));
+  const access_token = params.get('access_token');
+  if (!access_token) return null;
+  const expires_in = Number(params.get('expires_in') || 3600);
+  storeSession({ access_token, refresh_token: params.get('refresh_token') || null, token_type: params.get('token_type') || 'bearer', expires_in, expires_at: Math.floor(Date.now() / 1000) + expires_in });
+  return { type: params.get('type') || 'signin' };
+}
+
+export async function getAccessToken() {
+  const s = await refreshSessionIfNeeded();
+  return s?.access_token || null;
+}
 
 export async function sessionInfo() {
   const s = await refreshSessionIfNeeded();

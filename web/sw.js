@@ -1,8 +1,8 @@
 // Sürüm değişince eski önbellek temizlenir; web/version.js ile aynı tutulmalı.
-const CACHE='bka-v1.2.2-supabase';
+const CACHE='bka-v1.4.3';
 const ASSETS=[
   './','./index.html','./styles.css','./app.js','./engine.js','./loyalty.js','./bootstrap-data.js','./campaign-browser.js',
-  './cloud-sync.js','./catalog-state.js','./version.js','./tr-time.js','./runtime-config.js','./manifest.webmanifest','./data/catalog.json',
+  './cloud-sync.js','./catalog-state.js','./version.js','./tr-time.js','./router.js','./app-info.js','./build-info.js','./profile-catalog.js','./profile-model.js','./profile-store.js','./profile-criteria.js','./legacy-option-aliases.js','./eligibility.js','./runtime-config.js','./manifest.webmanifest','./data/catalog.json',
   './icons/icon-192.png','./icons/icon-512.png','./icons/maskable-192.png','./icons/maskable-512.png'
 ];
 self.addEventListener('install',e=>{ self.skipWaiting(); e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS))); });
