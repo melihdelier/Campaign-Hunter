@@ -2,6 +2,11 @@ name: PWA katalog ve yayin
 
 on:
   workflow_dispatch:
+    inputs:
+      allow_bootstrap:
+        description: 'YALNIZ ilk kurulum: son basarili katalog (LKG) yokken yayina izin ver'
+        type: boolean
+        default: false
   push:
     branches: [ main ]
   schedule:
@@ -19,32 +24,68 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build:
+  test:
+    # Testler gecmeden tarama/yayin yapilmaz. Kampanya takvimi Europe/Istanbul'a gore isledigi icin
+    # JS testleri hem UTC hem Europe/Istanbul (ve uc saat dilimleri) altinda kosar.
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Python testleri (TZ=UTC)
+        env:
+          TZ: UTC
+        run: python -m unittest discover -s server/tests -p "test_*.py"
+      - name: Python testleri (TZ=Europe/Istanbul)
+        env:
+          TZ: Europe/Istanbul
+        run: python -m unittest discover -s server/tests -p "test_*.py"
+      - name: JS testleri (Europe/Istanbul, UTC, America/Los_Angeles, Pacific/Kiritimati)
+        working-directory: web
+        run: npm test
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    outputs:
+      verdict: ${{ steps.guard.outputs.verdict }}
     env:
       SUPABASE_URL: ${{ vars.SUPABASE_URL }}
       SUPABASE_PUBLISHABLE_KEY: ${{ vars.SUPABASE_PUBLISHABLE_KEY || vars.SUPABASE_ANON_KEY }}
       SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY || secrets.SUPABASE_SERVICE_ROLE_KEY }}
       REFRESH_WEBHOOK_URL: ${{ vars.REFRESH_WEBHOOK_URL }}
-
+      # Opsiyonel; boşsa GITHUB_REPOSITORY'den https://<owner>.github.io/<repo>/data/catalog.json türetilir.
+      PAGES_CATALOG_URL: ${{ vars.PAGES_CATALOG_URL }}
+      # Fail-closed: LKG alinamazsa yayin engellenir. Yalniz elle calistirmada acikca secilirse bootstrap'a izin verilir.
+      CATALOG_GUARD_ALLOW_BOOTSTRAP: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_bootstrap && '1' || '' }}
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-
+      - name: Son basarili uretim katalogunu al (LKG)
+        run: python server/catalog_guard.py fetch-lkg
       - name: Canli kampanya katalogunu tara
+        id: crawl
+        continue-on-error: true
         run: python server/campaign_crawler.py
-
+      - name: Katalog kalite kapisi
+        id: guard
+        run: python server/catalog_guard.py evaluate --crawl-outcome "${{ steps.crawl.outcome }}"
+      - name: LKG yoksa dagitimi engelle (fail-closed)
+        if: ${{ steps.guard.outputs.deploy != 'true' }}
+        run: |
+          echo "::error::Son basarili katalog alinamadi ve yeni tarama yayinlanamaz. Mevcut Pages sitesi ve Supabase snapshot'i degistirilmedi. Ilk kurulum ise workflow'u 'allow_bootstrap' ile elle calistir."
+          exit 1
       - name: PWA statik katalogunu hazirla
         run: |
           mkdir -p web/data
           cp server/data/catalog.json web/data/catalog.json
-
-      - name: Supabase katalog snapshot yayinla
+      - name: Supabase katalog snapshot yayinla (ayarliysa)
         run: python server/publish_supabase.py
-
       - name: Runtime PWA ayarlarini yaz
         run: |
           python - <<'PY'
@@ -55,26 +96,32 @@ jobs:
             'catalogMode':'auto',
             'refreshWebhookUrl':os.getenv('REFRESH_WEBHOOK_URL','')
           }
-          pathlib.Path('web/runtime-config.js').write_text(
-              'window.BKA_CONFIG = '+json.dumps(c,ensure_ascii=False)+';\n',
-              encoding='utf-8'
-          )
+          pathlib.Path('web/runtime-config.js').write_text('window.BKA_CONFIG = '+json.dumps(c,ensure_ascii=False)+';\n',encoding='utf-8')
           PY
-
       - uses: actions/configure-pages@v5
-
       - uses: actions/upload-pages-artifact@v3
         with:
           path: web
-
   deploy:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     needs: build
-
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+  catalog-health:
+    # Kod dağıtımı engellenmez; ama yeni tarama reddedildiyse iş akışı kırmızı görünür (GitHub e-posta bildirimi).
+    needs: [build, deploy]
+    if: ${{ always() && needs.build.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Katalog kalite kapisi sonucu
+        run: |
+          echo "Kalite kapisi: ${{ needs.build.outputs.verdict }}"
+          if [ "${{ needs.build.outputs.verdict }}" = "rejected" ]; then
+            echo "::error::Yeni tarama reddedildi; son basarili katalog yayinda tutuldu. Ayrintilar build isinin ozetinde."
+            exit 1
+          fi
