@@ -3,9 +3,13 @@ import { recommend, money, ensureReset, freshness, ruleMinSpend, resolveMerchant
 import { calculateLoyalty, campaignRewardLabel, THY_STATUSES, QNB_SEGMENTS, WINGS_TIERS, MAXIMILES_BANDS, CRYSTAL_BANDS, CRYSTAL_CARD_TYPES, TEB_TIERS, formatNumber } from './loyalty.js';
 import { CAMPAIGN_BROWSER_CATEGORIES, groupCampaignsByCard, merchantScopeInfo, paymentScopeInfo } from './campaign-browser.js';
 import { cloudConfigured, cloudConfigSummary, sessionInfo, signUp, signIn, signOut, testCloudConnection, fetchCloudCatalog, fetchCloudUserState, saveCloudUserState, triggerCloudRefresh } from './cloud-sync.js';
+import { mergeCatalogWithCore as mergeCatalogWithCoreRules, reconcileCampaignStates as reconcileStatesRules, invalidateSegmentDependentStates as invalidateSegmentRules, applyCloudRow, isLocalServerMode } from './catalog-state.js';
+import { APP_VERSION } from './version.js';
 
 const STORAGE_KEY = 'banka-kampanya-avcisi-v10';
 const REFRESH_API = '';
+// /api/* uçları yalnız yerel geliştirme sunucusunda (localhost) vardır; GitHub Pages'te çağrılmaz.
+const LOCAL_API = isLocalServerMode();
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 
@@ -14,47 +18,13 @@ function esc(v) { return String(v ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;',
 
 
 const CORE_BENEFITS = initialCampaigns.filter(c => c.coreBenefit === true);
-function normSourceUrl(u) { return String(u || '').trim().replace(/\/+$/, '').toLowerCase(); }
-const NAV_MERCHANT_NOISE = /^(?:ana sayfa|bireysel bankacılık|krediler|kartlar|kredi kartları|mevduat ürünleri|yatırım ürünleri|ödemeler ve hizmetler|sigorta ve emeklilik|hesaplama araçları|şube ve|atm(?:'ler|ler)?|kendim için|işim için|geri)$/i;
 
-function safeMerchantScope(core, live) {
-  const cs = core?.merchantScope || { kind: 'all' };
-  const ls = live?.merchantScope || null;
-  if (!ls || cs.kind !== 'contains' || ls.kind !== 'contains') return cs;
-  const liveValues = (ls.values || []).filter(v => v && !NAV_MERCHANT_NOISE.test(String(v).trim()));
-  if (!liveValues.length) return cs;
-  const values = [...new Set([...(cs.values || []), ...liveValues])];
-  const excludedValues = [...new Set([...(cs.excludedValues || []), ...(ls.excludedValues || [])])];
-  return { ...cs, ...ls, values, excludedValues, requiresBranchConfirmation: cs.requiresBranchConfirmation === true || ls.requiresBranchConfirmation === true };
-}
-
-function mergeCatalogWithCore(campaigns = []) {
-  const live = clone(Array.isArray(campaigns) ? campaigns : []);
-  const consumed = new Set();
-  const cores = CORE_BENEFITS.map(core => {
-    const i = live.findIndex((c, idx) => !consumed.has(idx) && (
-      (core.sourceUrl && normSourceUrl(c.sourceUrl) === normSourceUrl(core.sourceUrl)) || c.id === core.id
-    ));
-    const observed = i >= 0 ? live[i] : null;
-    if (i >= 0) consumed.add(i);
-    // Sürekli kart ayrıcalığının finansal/segment kuralları doğrulanmış core kayıttan gelir.
-    // Canlı kaynak yalnızca işyeri kapsamı ve son görülme bilgisini zenginleştirir; bozuk parser core kuralını silemez.
-    return {
-      ...(observed || {}),
-      ...clone(core),
-      merchantScope: safeMerchantScope(core, observed),
-      verifiedAt: observed?.verifiedAt || core.verifiedAt,
-      rawTextDigest: observed?.rawTextDigest || core.rawTextDigest,
-      sourceKind: 'core_benefit',
-      coreBenefit: true,
-      liveObserved: Boolean(observed),
-    };
-  });
-  return [...cores, ...live.filter((_, idx) => !consumed.has(idx) && !CORE_BENEFITS.some(core => core.id === live[idx]?.id))];
+function mergeCatalogWithCore(campaigns = [], existingCampaigns = []) {
+  return mergeCatalogWithCoreRules(campaigns, { coreBenefits: CORE_BENEFITS, existingCampaigns, now: new Date() });
 }
 
 function ensureCoreBenefitsInData() {
-  data.campaigns = mergeCatalogWithCore(data.campaigns || []);
+  data.campaigns = mergeCatalogWithCore(data.campaigns || [], data.campaigns || []);
   data.states = data.states || {};
   for (const core of CORE_BENEFITS) {
     if (!data.states[core.id] && initialStates[core.id]) data.states[core.id] = clone(initialStates[core.id]);
@@ -62,7 +32,7 @@ function ensureCoreBenefitsInData() {
 }
 
 let lastQueryDebug = null;
-let runtimeAppVersion = 'v1.2.0-pwa';
+let runtimeAppVersion = APP_VERSION;
 let campaignBrowserState = { category: 'all', search: '', onlyComplete: false, selectedKey: null };
 
 function diagnosticEval(e) {
@@ -155,20 +125,17 @@ function syncCardSegmentsFromSettings() {
     if (card.cardProductId === 'qnb-ms-private') card.segment = selectedLabel(QNB_SEGMENTS, data.settings.qnbSegment, 'private');
     else if (card.cardProductId === 'akbank-wings-elite' || card.cardProductId === 'akbank-wings-black') card.segment = selectedLabel(WINGS_TIERS, data.settings.wingsTier, 'black_plus').replace(/^Standart\s*\//, 'Classic /');
     else if (card.cardProductId === 'is-maximiles-black') card.segment = selectedLabel(MAXIMILES_BANDS, data.settings.maximilesBand, '4m_8m');
-    else if (card.cardProductId === 'ykb-crystal') card.segment = data.settings.crystalCardType === 'metal_crystal' ? 'Metal Crystal' : selectedLabel(CRYSTAL_BANDS, data.settings.crystalBand, 'under_1m');
+    else if (card.cardProductId === 'ykb-crystal') {
+      // Segment her zaman varlık seviyesidir; kart tipi ayrı tutulur (Metal Crystal artık bir segment değil).
+      card.segment = selectedLabel(CRYSTAL_BANDS, data.settings.crystalBand, 'under_1m');
+      card.cardType = ['crystal', 'metal_crystal', 'crystal_and_metal'].includes(data.settings.crystalCardType) ? data.settings.crystalCardType : 'crystal';
+    }
     else if (card.cardProductId === 'teb-infinite') card.segment = selectedLabel(TEB_TIERS, data.settings.tebTier, 'ultra');
   }
 }
 
 function invalidateSegmentDependentStates(bank) {
-  const now = new Date().toISOString();
-  for (const campaign of data.campaigns || []) {
-    if (campaign.bank !== bank) continue;
-    const dependsOnSegment = (campaign.eligibility?.segmentLabels?.length || 0) > 0 || Boolean(campaign.segmentRules);
-    if (!dependsOnSegment) continue;
-    const prev = data.states[campaign.id] || {};
-    data.states[campaign.id] = { ...prev, remainingLimit: null, lastUpdatedAt: now, source: 'segment_change', note: 'Segment değişti; kalan kampanya hakkı yeniden doğrulanmalı.' };
-  }
+  data.states = invalidateSegmentRules({ campaigns: data.campaigns || [], states: data.states || {}, bank, now: new Date() });
 }
 
 function save() { data.meta = {...(data.meta||{}), updatedAt:new Date().toISOString()}; localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); }
@@ -179,7 +146,7 @@ function cardForCampaign(campaign) {
 
 function effectiveCampaign(campaign) {
   const card = cardForCampaign(campaign);
-  return card ? resolveSegmentCampaign(campaign, card) : campaign;
+  return card ? resolveSegmentCampaign(campaign, card, new Date()) : resolveSegmentCampaign(campaign, { segment: null }, new Date());
 }
 
 function syncResets() {
@@ -240,8 +207,8 @@ function renderDashboard() {
       const zeroSources = reports.filter(r => expectedSources.includes(r.key) && Number(r.kept_count || 0) === 0).map(r => r.key);
       const sourceAlert = [...new Set([...missingSources.map(x => `${x}: rapor yok`), ...zeroSources.map(x => `${x}: 0 kayıt`)])];
       const coreCount = data.campaigns.filter(c => c.coreBenefit).length;
-      health.innerHTML = `<strong>Canlı katalog:</strong> ${esc(m.campaign_count ?? 0)} canlı kampanya + ${esc(coreCount)} sürekli kart ayrıcalığı · ${esc(covered)}/${esc(reports.length || '?')} resmi kaynakta uygun kayıt · ${esc(errors)} kaynak hatası · son tarama ${esc(formatRefreshTime(generated))} · sürüm ${esc(runtimeAppVersion)}.${sourceAlert.length ? `<br><strong>Kaynak kontrolü:</strong> ${sourceAlert.map(esc).join(' · ')}` : ''}`;
-      health.classList.toggle('warn', errors > 0 || sourceAlert.length > 0);
+      health.innerHTML = `<strong>Canlı katalog:</strong> ${esc(m.campaign_count ?? 0)} canlı kampanya + ${esc(coreCount)} sürekli kart ayrıcalığı · ${esc(covered)}/${esc(reports.length || '?')} resmi kaynakta uygun kayıt · ${esc(errors)} kaynak hatası · son tarama ${esc(formatRefreshTime(generated))} · sürüm ${esc(runtimeAppVersion)}.${sourceAlert.length ? `<br><strong>Kaynak kontrolü:</strong> ${sourceAlert.map(esc).join(' · ')}` : ''}${m.guard && m.guard.verdict && m.guard.verdict !== 'ok' ? `<br><strong>Kalite kapısı:</strong> ${m.guard.verdict === 'repaired' ? `onarıldı — ${esc((m.guard.repairedSources || []).join(', '))} için son başarılı kayıtlar korunuyor` : 'yeni tarama reddedildi; son başarılı katalog gösteriliyor'}` : ''}`;
+      health.classList.toggle('warn', errors > 0 || sourceAlert.length > 0 || (m.guard && m.guard.verdict && m.guard.verdict !== 'ok'));
     } else {
       health.innerHTML = '<strong>Başlangıç kataloğu:</strong> Canlı resmi tarama arka planda başlatılıyor. Ayarlar → Şimdi yenile ile durumu kontrol edebilirsin.';
     }
@@ -308,7 +275,7 @@ function campaignCompactHtml(card, c) {
     <div class="campaign-browser-item-head"><strong>${esc(c.title)}</strong><span class="campaign-chevron">›</span></div>
     <div class="rule-line">${esc(rewardRuleSummary(c))}</div>
     ${merchantText}
-    <div class="badges">${browserEnrollmentBadge(c,s)}${c.coreBenefit ? badge('Sürekli', 'ok') : ''}${c.rulesComplete === false ? badge('Detay eksik', 'warn') : ''}${categoryAuditInfo(c).low ? badge('Kategori teyitsiz', 'warn') : ''}</div>
+    <div class="badges">${c.expiredCore ? badge('Dönem bitti · doğrulama bekliyor', 'warn') : ''}${c.officialDateConflict ? badge('Resmi tarih çelişkisi', 'warn') : ''}${c.liveExtendedValidity ? badge('Yeni dönem · kurallar teyitsiz', 'warn') : ''}${browserEnrollmentBadge(c,s)}${c.coreBenefit ? badge('Sürekli', 'ok') : ''}${c.rulesComplete === false ? badge('Detay eksik', 'warn') : ''}${categoryAuditInfo(c).low ? badge('Kategori teyitsiz', 'warn') : ''}</div>
   </button>`;
 }
 
@@ -376,6 +343,9 @@ function renderCampaignDetail(groups) {
     ${excluded.length ? `<div class="detail-section"><div class="detail-label">Hariç işlemler / kategoriler</div><div class="detail-value detail-list">${excluded.map(x=>`<span>${esc(x)}</span>`).join('')}</div></div>` : ''}
     ${txnBits.length ? `<div class="detail-section"><div class="detail-label">Diğer önemli koşullar</div><ul class="campaign-detail-list">${txnBits.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}
     ${c.termsSummary ? `<div class="detail-section"><div class="detail-label">Özet koşullar</div><div class="detail-value detail-copy">${esc(c.termsSummary)}</div></div>` : ''}
+    ${c.expiredCore ? `<div class="detail-warning strong-warning">Bu sürekli ayrıcalığın doğrulanmış dönemi ${esc(c.endDate)} tarihinde sona erdi; yeni dönem koşulları henüz doğrulanmadı. Karar motoru bu kaydı hesaba katmaz; resmi sayfayı kontrol et.</div>` : ''}
+    ${(c.officialSources || []).length ? `<div class="detail-section ${c.officialDateConflict ? 'scope-warning' : ''}"><div class="detail-label">Onaylı resmi kaynaklar${c.officialDateConflict ? ' · tarih çelişkisi' : ''}</div><ul class="campaign-detail-list">${c.officialSources.map(x=>`<li><a class="source-link" href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.label || x.url)}</a> — bitiş ${esc(x.endDate || 'belirtilmemiş')}${x.liveUpdated ? ' (canlı görüldü)' : ''}</li>`).join('')}</ul>${c.officialDateConflict ? `<div class="detail-warning">Kullanılan bitiş: ${esc(c.officialDateConflict.chosenEndDate)} (${c.officialDateConflict.policy === 'earliest_official' ? 'en erken' : 'en geç'} resmi tarih). İşlemden önce teyit et.</div>` : ''}</div>` : ''}
+    ${(c.decisionWarnings || []).length ? `<div class="detail-section"><div class="detail-label">Karar uyarıları</div><ul class="campaign-detail-list">${c.decisionWarnings.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}
     ${c.rulesComplete === false ? `<div class="detail-warning strong-warning">Bu kampanyanın tüm koşulları otomatik olarak kesin çözülememiş. Resmi koşulları kontrol et.</div>` : ''}
     <div class="button-row campaign-detail-actions">
       <button class="secondary small" data-edit-limit="${esc(c.id)}">Kalan hakkı güncelle</button>
@@ -401,7 +371,7 @@ function renderCampaigns() {
     campaigns: data.campaigns,
     cards: data.cards,
     category: campaignBrowserState.category,
-    resolveCampaign: (raw, card) => resolveSegmentCampaign(raw, card),
+    resolveCampaign: (raw, card, now) => resolveSegmentCampaign(raw, card, now),
     now: new Date()
   }).map(group => ({
     ...group,
@@ -645,7 +615,10 @@ function renderRecommendation() {
         rewardLine = `Bu işlem kampanya ilerlemesine sayılır; henüz ödül doğurmaz.`;
         cls = 'warn-text';
       } else if (!b.remainingKnown || b.actualReward === null) {
-        rewardLine = `Teorik ${campaignRewardLabel(b.campaign, b.theoreticalReward)} · sonuç kalan limit/işlem sırası doğrulamasına bağlı`;
+        const capNote = b.periodCapApplied ? ' (dönem tavanıyla sınırlı)' : '';
+        rewardLine = !b.remainingKnown
+          ? `Teorik en fazla ${campaignRewardLabel(b.campaign, b.theoreticalReward)}${capNote} · kalan dönem hakkı bilinmiyor`
+          : `Teorik ${campaignRewardLabel(b.campaign, b.theoreticalReward)}${capNote} · sonuç işlem sırası doğrulamasına bağlı`;
         cls = 'warn-text';
       } else {
         rewardLine = `${b.conditional ? 'Koşullu avantaj' : 'Hesaplanan avantaj'} ${campaignRewardLabel(b.campaign, b.actualReward)}`;
@@ -675,7 +648,7 @@ function renderRecommendation() {
       : '';
 
     const infos = results.flatMap(r => (r.informational || []).map(i => ({r,i})));
-    const infoHtml = infos.length ? `<div class="info-section"><h3>İlgili diğer kampanyalar</h3><p class="muted">Bu kampanyalar resmi kaynakta bulundu ancak otomatik hesap için tüm koşullar güvenle çözümlenemedi. Kaybolmazlar; resmi detayı açıp kontrol edebilirsin.</p>${infos.map(({r,i}) => `<article class="result-card info-card"><div class="rank">i</div><div class="result-body"><div class="info-label">BİLGİ AMAÇLI</div><strong>${esc(r.card.bank)} — ${esc(r.card.name)}</strong><div>${esc(i.campaign.title)}</div><div class="rule-line">${esc(rewardRuleSummary(i.campaign))}</div>${i.campaign.termsSummary ? `<div class="muted">${esc(i.campaign.termsSummary)}</div>` : ''}${i.campaign.sourceUrl ? `<a class="source-link" href="${esc(i.campaign.sourceUrl)}" target="_blank" rel="noopener">Resmi koşulları aç ↗</a>` : ''}</div></article>`).join('')}</div>` : '';
+    const infoHtml = infos.length ? `<div class="info-section"><h3>İlgili diğer kampanyalar</h3><p class="muted">Bu kampanyalar resmi kaynakta bulundu ancak otomatik hesap için tüm koşullar güvenle çözümlenemedi. Kaybolmazlar; resmi detayı açıp kontrol edebilirsin.</p>${infos.map(({r,i}) => `<article class="result-card info-card"><div class="rank">i</div><div class="result-body"><div class="info-label">BİLGİ AMAÇLI</div><strong>${esc(r.card.bank)} — ${esc(r.card.name)}</strong><div>${esc(i.campaign.title)}</div><div class="rule-line">${esc(rewardRuleSummary(i.campaign))}</div>${i.infoNote ? `<div class="detail-warning">${esc(i.infoNote)}</div>` : ''}${i.campaign.termsSummary ? `<div class="muted">${esc(i.campaign.termsSummary)}</div>` : ''}${i.campaign.sourceUrl ? `<a class="source-link" href="${esc(i.campaign.sourceUrl)}" target="_blank" rel="noopener">Resmi koşulları aç ↗</a>` : ''}</div></article>`).join('')}</div>` : '';
 
     const inputNoticeHtml = inputNotices.length
       ? `<div class="input-notice"><strong>Girdi kontrolü:</strong> ${inputNotices.map(esc).join(' ')}</div>`
@@ -758,6 +731,12 @@ function showRefreshStatus(payload) {
 }
 
 async function loadRefreshStatus() {
+  if (!LOCAL_API) {
+    const el = $('#refreshStatus');
+    if (el) el.textContent = cloudConfigured() ? 'PWA bulut modu: katalog 08:00/18:00 sunucu taramasıyla güncellenir.' : 'PWA dağıtımında katalog statik/bulut kaynaktan okunur.';
+    setRefreshButtonRunning(false);
+    return;
+  }
   try {
     const res = await fetch(`${REFRESH_API}/api/status`, { cache: 'no-store' });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -784,6 +763,7 @@ function wireRefreshTools() {
   btn.addEventListener('click', async () => {
     setRefreshButtonRunning(true);
     try {
+      if (!LOCAL_API) throw new Error('local_api_disabled');
       const res = await fetch(`${REFRESH_API}/api/refresh`, { method: 'POST' });
       const payload = await res.json().catch(() => ({}));
       if (res.status === 409 && payload.error === 'refresh_already_running') {
@@ -829,16 +809,15 @@ function renderAll() {
 }
 
 
-function reconcileCampaignStates(nextCampaigns) {
-  const nextStates = {};
-  for (const rawCampaign of nextCampaigns) {
-    const c = effectiveCampaign(rawCampaign);
-    nextStates[c.id] = ensureReset(c, data.states[c.id], new Date());
-  }
-  data.states = nextStates;
+function reconcileCampaignStates(nextCampaigns, previousCampaigns = []) {
+  // Geçici olarak kaybolan / id'si değişen kampanyanın kullanıcı durumu silinmez (catalog-state.js).
+  data.states = reconcileStatesRules({ campaigns: nextCampaigns, states: data.states || {}, previousCampaigns, resolve: effectiveCampaign, now: new Date() });
 }
 
 async function loadRuntimeVersion() {
+  const v0 = $('#runtimeVersion');
+  if (v0) v0.textContent = runtimeAppVersion;
+  if (!LOCAL_API) return;
   try {
     const res = await fetch(`${REFRESH_API}/api/version`, { cache: 'no-store' });
     if (!res.ok) return;
@@ -854,7 +833,7 @@ async function loadRuntimeVersion() {
 async function fetchCatalogPayload(force=false) {
   const mode = cloudConfigSummary().catalogMode || 'auto';
   const errors = [];
-  if (mode === 'local' || mode === 'auto') {
+  if (LOCAL_API && (mode === 'local' || mode === 'auto')) {
     try {
       const res = await fetch(`${REFRESH_API}/api/catalog`, { cache: force ? 'reload' : 'no-store' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -889,8 +868,9 @@ async function loadLiveCatalog(force=false) {
       return;
     }
     if (Array.isArray(payload.campaigns) && payload.campaigns.length) {
-      data.campaigns = mergeCatalogWithCore(payload.campaigns);
-      reconcileCampaignStates(data.campaigns);
+      const previousCampaigns = data.campaigns || [];
+      data.campaigns = mergeCatalogWithCore(payload.campaigns, previousCampaigns);
+      reconcileCampaignStates(data.campaigns, previousCampaigns);
       data.meta.catalogGeneratedAt = payload.generatedAt || null;
       data.meta.catalogMeta = payload.meta || {};
       save(); renderAll();
@@ -968,6 +948,10 @@ function wirePrivateCampaign() {
     const text = $('#privateText').value.trim();
     const title = $('#privateTitle').value.trim();
     if (!text) return alert('Kampanya detay metnini yapıştır.');
+    if (!LOCAL_API) {
+      status.textContent = 'Özel kampanya analizi şu an yalnız yerel sunucu modunda çalışıyor (bulut uç noktası henüz yok). Mevcut özel kampanyaların korunur.';
+      return;
+    }
     const requestObj = { bank, cardProductIds:[cardProductId], title, text };
     status.textContent = 'Analiz ediliyor ve mevcut kampanyalarla karşılaştırılıyor…';
     try {
@@ -1000,10 +984,8 @@ function personalCloudPayload() {
 
 function applyCloudPayload(row) {
   if (!row) return false;
-  data.settings = {...seed().settings, ...(row.settings || {})};
-  data.states = {...(data.states || {}), ...(row.campaign_states || {})};
-  const privateItems = Array.isArray(row.private_campaigns) ? row.private_campaigns : [];
-  data.campaigns = [...(data.campaigns || []).filter(c => c.sourceKind !== 'user_private'), ...privateItems];
+  // Bulut satırındaki boş/eksik özel kampanya listesi cihazdaki özel kampanyaları silmez; birleşim yapılır.
+  data = applyCloudRow(data, row, seed().settings);
   ensureCoreBenefitsInData(); syncCardSegmentsFromSettings(); save(); renderAll();
   return true;
 }
@@ -1086,7 +1068,7 @@ loadLiveCatalog();
 // son başarılı tam kataloğu kullanmaya devam eder; yeni katalog yalnız tarama bitince alınır.
 let lastObservedRefreshState = null;
 let lastObservedCampaignCount = 0;
-setInterval(async () => {
+if (LOCAL_API) setInterval(async () => {
   try {
     const res = await fetch(`${REFRESH_API}/api/status`, { cache: 'no-store' });
     if (!res.ok) return;

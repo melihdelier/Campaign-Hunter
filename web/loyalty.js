@@ -35,6 +35,7 @@ export const CRYSTAL_BANDS = [
 export const CRYSTAL_CARD_TYPES = [
   { value: 'crystal', label: 'Crystal' },
   { value: 'metal_crystal', label: 'Metal Crystal' },
+  { value: 'crystal_and_metal', label: 'Crystal + Metal Crystal (ikisi birden)' },
 ];
 
 export const TEB_TIERS = [

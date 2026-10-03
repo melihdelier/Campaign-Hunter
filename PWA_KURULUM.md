@@ -1,4 +1,4 @@
-# Banka Kampanya Avcısı — PWA kurulumu (v1.2.0)
+# Banka Kampanya Avcısı — PWA kurulumu (v1.2.2-supabase)
 
 Bu sürüm PWA olarak kurulabilir. Kart numarası, CVV, son kullanma tarihi veya banka giriş bilgisi için alan yoktur.
 

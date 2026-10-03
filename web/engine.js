@@ -1,12 +1,14 @@
+import { trDay, trMonthKey, toTrDay } from './tr-time.js';
+
 export function money(value) {
   if (value === null || value === undefined || Number.isNaN(Number(value))) return 'Bilinmiyor';
   return new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY', maximumFractionDigits: 2 }).format(Number(value));
 }
 
+// Dönem anahtarı Türkiye takvimine (Europe/Istanbul) göre üretilir; cihaz saat diliminden bağımsızdır.
 export function currentPeriodKey(campaign, date = new Date()) {
-  const d = new Date(date);
   if (campaign.resetPolicy === 'monthly') {
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    return trMonthKey(date);
   }
   if (campaign.resetPolicy === 'campaign') {
     return `${campaign.id}:${campaign.startDate || ''}:${campaign.endDate || ''}`;
@@ -14,13 +16,21 @@ export function currentPeriodKey(campaign, date = new Date()) {
   return `${campaign.id}:static`;
 }
 
+// Geçerlilik, Türkiye takvim günleri ('YYYY-MM-DD') karşılaştırılarak belirlenir: başlangıç günü 00:00 ve
+// bitiş günü 23:59:59 Europe/Istanbul saatidir; çalışma ortamının yerel gece yarısına dayanmaz.
 export function campaignIsActive(campaign, date = new Date()) {
-  const now = new Date(date);
-  const start = campaign.startDate ? new Date(`${campaign.startDate}T00:00:00`) : null;
-  const end = campaign.endDate ? new Date(`${campaign.endDate}T23:59:59`) : null;
-  if (start && now < start) return false;
-  if (end && now > end) return false;
+  const today = trDay(date);
+  const start = toTrDay(campaign.startDate);
+  const end = toTrDay(campaign.endDate);
+  if (start && today < start) return false;
+  if (end && today > end) return false;
   return campaign.status !== 'inactive' && campaign.status !== 'expired';
+}
+
+// Bitiş günü Türkiye takviminde geçti mi?
+export function endDatePassed(endDate, date = new Date()) {
+  const end = toTrDay(endDate);
+  return Boolean(end) && trDay(date) > end;
 }
 
 function norm(v) {
@@ -100,7 +110,7 @@ function knownMerchantContext(merchant) {
     if (hit && (!best || hit.score > best.score)) best = { ...item, score: hit.score, matchedAlias: hit.value };
   }
   if (!best || best.score < 0.80) return null;
-  return { recognized: true, canonicalName: best.canonicalName, score: best.score, categories: best.categories || [], matches: [], source: 'registry' };
+  return { recognized: true, canonicalName: best.canonicalName, score: best.score, exactAlias: best.score === 1, categories: best.categories || [], matches: [], source: 'registry' };
 }
 
 function bestExcludedMerchantCandidate(input, values = []) {
@@ -170,9 +180,14 @@ export function resolveMerchantInput(campaigns, merchant, selectedCategory) {
   } else {
     // Manuel kategori, kampanya kataloğundaki gürültülü kategori çıkarımına kurban edilmemeli.
     // Yalnızca güvenilir yerel işyeri sözlüğü tek bir kategori söylüyorsa açık bir çelişkiyi düzelt.
-    if (context.source === 'registry' && context.categories.length === 1 && !context.categories.includes(selectedCategory)) {
+    // Yalnız birebir (normalize edilmiş) alias eşleşmesi manuel seçimi düzeltebilir. Alt dize / bulanık eşleşme
+    // (ör. "Amazon Prime Video" ⊃ "Amazon") farklı bir hizmet olabilir; manuel seçim korunur, yalnız uyarı verilir.
+    if (context.source === 'registry' && context.exactAlias === true && context.categories.length === 1 && !context.categories.includes(selectedCategory)) {
       effectiveCategory = context.categories[0];
       notices.push(`Kategori uyuşmazlığı: “${context.canonicalName}” güvenilir işyeri sözlüğünde “${effectiveCategory}” olarak tanınıyor. “${selectedCategory}” yerine “${effectiveCategory}” kullanıldı.`);
+    } else if (context.source === 'registry' && context.categories.length === 1 && !context.categories.includes(selectedCategory)) {
+      effectiveCategory = selectedCategory;
+      notices.push(`“${merchant}” işyeri sözlüğündeki “${context.canonicalName}” (${context.categories[0]}) kaydına benziyor fakat birebir eşleşmiyor; manuel kategori “${selectedCategory}” korundu.`);
     } else {
       effectiveCategory = selectedCategory;
       if (context.categories.length > 1 && !context.categories.includes(selectedCategory)) {
@@ -196,7 +211,67 @@ export function segmentMatches(campaign, card) {
   return allowed.some(s => norm(s) === norm(card.segment));
 }
 
-export function resolveSegmentCampaign(campaign, card) {
+// Sürekli ayrıcalıklar birden fazla doğrulanmış dönem taşıyabilir (ör. Q3 → Q4 kural değişikliği).
+// Tarihe göre geçerli dönemi seçer; hiçbiri geçerli değilse en son başlamış dönemi döndürür
+// (böylece kampanya "dönemi bitti" olarak görünür, sessizce kaybolmaz).
+const PERIOD_FIELDS = ['startDate','endDate','segmentRules','rewardRule','periodCap','eligibility','transactionRules','termsSummary','verifiedAt','requiresEnrollment','enrollmentMethod','enrollmentScope','rulesComplete','rewardUnit','merchantScope','categories'];
+
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+function isIsoDay(v) {
+  if (!ISO_DAY.test(String(v || ''))) return false;
+  const d = new Date(`${v}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v;
+}
+
+// Bir core ayrıcalık birden fazla ONAYLI resmi kaynağa (ör. banka sayfası + kart programı sitesi) sahip olabilir.
+// Kaynaklar geçerlilik tarihinde çelişirse bu açıkça temsil edilir (officialDateConflict) ve uyarı eklenir.
+// dateConflictPolicy: 'latest_official' (varsayılan; en geç resmi tarih) | 'earliest_official' (en temkinli).
+export function resolveOfficialSourceDates(campaign) {
+  const sources = Array.isArray(campaign?.officialSources) ? campaign.officialSources.filter(x => x && x.url) : [];
+  const dated = sources.filter(x => isIsoDay(x.endDate));
+  if (!dated.length) return campaign;
+  const ends = [...new Set(dated.map(x => x.endDate))].sort();
+  const policy = campaign.dateConflictPolicy === 'earliest_official' ? 'earliest_official' : 'latest_official';
+  const chosen = policy === 'earliest_official' ? ends[0] : ends[ends.length - 1];
+  const out = { ...campaign, endDate: chosen };
+  const warnings = [...(campaign.decisionWarnings || [])];
+  if (ends.length > 1) {
+    out.officialDateConflict = {
+      policy, chosenEndDate: chosen,
+      sources: dated.map(x => ({ key: x.key || null, label: x.label || x.url, url: x.url, endDate: x.endDate, verifiedAt: x.verifiedAt || null, liveUpdated: Boolean(x.liveUpdated) }))
+    };
+    warnings.push(`Resmi kaynaklar geçerlilik tarihinde çelişiyor: ${dated.map(x => `${x.label || x.url} → ${x.endDate}`).join(' · ')}. ${policy === 'latest_official' ? 'En geç' : 'En erken'} resmi tarih (${chosen}) kullanıldı; işlem öncesi banka/kart uygulamasından teyit et.`);
+  }
+  if (dated.some(x => x.liveUpdated && x.endDate === chosen)) {
+    out.liveExtendedValidity = true;
+    warnings.push('Geçerlilik tarihi resmi kaynakta canlı olarak görüldü; ödül/segment kuralları son doğrulanmış tanımdan taşındı. Resmi koşulları kontrol et.');
+  }
+  out.decisionWarnings = [...new Set(warnings)];
+  return out;
+}
+
+export function resolveValidityPeriod(campaign, now = new Date()) {
+  const periods = Array.isArray(campaign?.validityPeriods) ? campaign.validityPeriods.filter(Boolean) : [];
+  if (!periods.length) return resolveOfficialSourceDates(campaign);
+  const t = new Date(now);
+  const sorted = [...periods].sort((a, b) => String(a.startDate || '').localeCompare(String(b.startDate || '')));
+  const isIn = p => campaignIsActive({ status: 'active', startDate: p.startDate, endDate: p.endDate }, t);
+  let chosen = sorted.filter(isIn).pop();
+  if (!chosen) {
+    const today = trDay(t);
+    const started = sorted.filter(p => !p.startDate || toTrDay(p.startDate) <= today);
+    chosen = started.length ? started[started.length - 1] : sorted[0];
+  }
+  const out = { ...campaign };
+  for (const f of PERIOD_FIELDS) if (Object.prototype.hasOwnProperty.call(chosen, f)) out[f] = chosen[f];
+  out.activePeriodId = chosen.id || null;
+  out.decisionWarnings = [...new Set([...(campaign.decisionWarnings || []), ...(chosen.decisionWarnings || [])])];
+  if (chosen.liveExtended) out.liveExtendedValidity = true;
+  return out;
+}
+
+export function resolveSegmentCampaign(campaign, card, now = new Date()) {
+  campaign = resolveValidityPeriod(campaign, now);
   const rules = campaign.segmentRules;
   if (!rules || typeof rules !== 'object' || Array.isArray(rules)) return campaign;
   const entry = Object.entries(rules).find(([label]) => norm(label) === norm(card.segment));
@@ -302,6 +377,16 @@ export function calcTheoreticalReward(campaign, amount) {
   return Math.max(0, reward);
 }
 
+// İşlem bazlı teorik kazancı dönem (aylık/kampanya) tavanıyla sınırlar. Kalan hak bilinmese bile
+// tek bir işlem dönem tavanından fazla kazandıramaz.
+export function calcCappedTheoreticalReward(campaign, amount) {
+  const perTransaction = calcTheoreticalReward(campaign, amount);
+  const cap = campaign.periodCap;
+  if (cap === null || cap === undefined || !Number.isFinite(Number(cap))) return { reward: perTransaction, perTransaction, periodCapApplied: false };
+  const reward = Math.min(perTransaction, Math.max(0, Number(cap)));
+  return { reward, perTransaction, periodCapApplied: reward < perTransaction };
+}
+
 function blocker(code, message, kind = 'hard', meta = {}) {
   return { code, message, kind, ...meta };
 }
@@ -365,38 +450,78 @@ export function inspectCampaign({ campaign, card, merchant, category, amount, lo
   };
 }
 
+// Aynı id/URL'nin yeni bir kampanya için yeniden kullanılmasını tespit etmek için "kampanya örneği" başlangıcı.
+// Core ayrıcalıkların sürekliliği dönem (validityPeriods) mekanizmasıyla yönetilir; onlar için kullanılmaz.
+function campaignInstanceStart(campaign) {
+  return campaign && !campaign.coreBenefit && isIsoDay(campaign.startDate) ? campaign.startDate : null;
+}
+
+function parseCampaignPeriodKey(key, id) {
+  if (typeof key !== 'string' || !id || !key.startsWith(`${id}:`)) return null;
+  const [start = '', end = ''] = key.slice(id.length + 1).split(':');
+  return { start, end };
+}
+
+function unknownState(campaign, expectedKey, date, prevState, notes) {
+  const persistentEnrollment = prevState && campaign.requiresEnrollment && campaign.enrollmentScope === 'program'
+    && ['joined', 'not_joined'].includes(prevState.enrollmentStatus);
+  return {
+    campaignId: campaign.id,
+    periodKey: expectedKey,
+    enrollmentStatus: !campaign.requiresEnrollment ? 'not_required' : (persistentEnrollment ? prevState.enrollmentStatus : 'unknown'),
+    remainingLimit: null,
+    usedAmount: null,
+    qualifyingTransactions: null,
+    valueSource: 'unknown',
+    confirmedAt: null,
+    updatedAt: new Date(date).toISOString(),
+    notes,
+    ...(prevState?.identity ? { identity: prevState.identity } : {})
+  };
+}
+
 export function ensureReset(campaign, state, date = new Date()) {
   const expectedKey = currentPeriodKey(campaign, date);
+  const instanceStart = campaignInstanceStart(campaign);
+  const stamp = st => (instanceStart ? { ...st, campaignStart: instanceStart } : st);
+
   // Kampanya ilk kez katalogda görülüyorsa kullanıcının ay/dönem içindeki önceki kullanımını bilemeyiz.
   // Bu nedenle dönem tavanını "kalan hak" diye varsayma; kullanıcı doğrulayana kadar bilinmiyor tut.
   if (!state) {
-    return {
-      campaignId: campaign.id,
-      periodKey: expectedKey,
-      enrollmentStatus: campaign.requiresEnrollment ? 'unknown' : 'not_required',
-      remainingLimit: null,
-      usedAmount: null,
-      qualifyingTransactions: null,
-      valueSource: 'unknown',
-      confirmedAt: null,
-      updatedAt: new Date(date).toISOString(),
-      notes: 'Kampanya ilk kez görüldü; dönem içindeki önceki kullanım bilinmediği için kalan hak kullanıcı doğrulaması bekliyor.'
-    };
+    return stamp(unknownState(campaign, expectedKey, date, null, 'Kampanya ilk kez görüldü; dönem içindeki önceki kullanım bilinmediği için kalan hak kullanıcı doğrulaması bekliyor.'));
   }
+
+  // Kampanya-dönemi politikasında yalnız bitiş tarihi ileri uzadıysa (aynı başlangıç) bu yeni dönem değildir.
+  if (campaign.resetPolicy === 'campaign' && state.periodKey !== expectedKey) {
+    const prev = parseCampaignPeriodKey(state.periodKey, campaign.id);
+    if (prev && prev.start && prev.start === (campaign.startDate || '') && prev.end && (campaign.endDate || '') > prev.end) {
+      return stamp({ ...state, periodKey: expectedKey, notes: 'Kampanya süresi uzatıldı; mevcut kalan hak/ilerleme korundu.' });
+    }
+  }
+
   if (state.periodKey !== expectedKey) {
-    return {
-      campaignId: campaign.id,
-      periodKey: expectedKey,
-      enrollmentStatus: campaign.requiresEnrollment ? 'unknown' : 'not_required',
-      remainingLimit: campaign.periodCap ?? null,
-      usedAmount: 0,
-      qualifyingTransactions: null,
-      valueSource: 'reset',
-      confirmedAt: new Date(date).toISOString(),
-      updatedAt: new Date(date).toISOString(),
-      notes: 'Dönem değişiminde otomatik sıfırlandı.'
-    };
+    // KURAL: her yeni aylık/kampanya döneminde kalan hak BİLİNMİYOR olarak başlar — önceki dönem kullanıcı
+    // tarafından doğrulanmış olsa bile tam tavan varsayılmaz (kullanıcı uygulamayı açmadan önce harcamış olabilir).
+    // Kalan hak sıralamayı ancak yeni dönemde yeniden doğrulandıktan sonra etkiler; tavanlı teorik kazanç görünür kalır.
+    // Program katılımı (enrollmentScope:'program') kalıcıdır ve unknownState içinde korunur.
+    return stamp(unknownState(campaign, expectedKey, date, state,
+      'Yeni dönem başladı; kalan hak bu dönem için henüz doğrulanmadı. Bankadaki kalan hakkı doğrula.'));
   }
+
+  // Önceki sürümlerin dönem başında otomatik yazdığı "reset" değeri (tam tavan) kullanıcı doğrulaması değildir;
+  // aynı politika gereği bilinmiyor yapılır. (v1.2.2 artık 'reset' değeri üretmez; bu yalnız eski cihaz verisidir.)
+  if (state.valueSource === 'reset') {
+    return stamp({ ...state, remainingLimit: null, usedAmount: null, valueSource: 'unknown', confirmedAt: null,
+      updatedAt: new Date(date).toISOString(), notes: 'Eski sürümün otomatik dönem değeri kaldırıldı; kalan hak bu dönem için doğrulanmalı.' });
+  }
+
+  // Aynı takvim ayı/dönem anahtarı içinde, aynı id/URL farklı başlangıç tarihli YENİ bir kampanyaya dönüştüyse
+  // önceki kalan hak / ilerleme / katılım bu kampanyaya sessizce taşınmaz.
+  if (instanceStart && state.campaignStart && state.campaignStart !== instanceStart) {
+    return stamp(unknownState(campaign, expectedKey, date, state,
+      `Aynı kaynakta yeni kampanya dönemi tespit edildi (başlangıç ${state.campaignStart} → ${instanceStart}); önceki kalan hak/ilerleme taşınmadı, yeniden doğrula.`));
+  }
+  if (instanceStart && !state.campaignStart) return { ...state, campaignStart: instanceStart };
   return state;
 }
 
@@ -433,17 +558,50 @@ function progressAssessment(campaign, state) {
   };
 }
 
+// Kartlar arası birleşik müşteri tavanı (ör. Metal Crystal + Crystal birlikte: aylık 15.000 TL toplam).
+// Kart başına segment tavanından AYRI bir kuraldır; yalnız müşteri gerekli kart tiplerinin hepsini taşıyorsa devreye girer.
+export function cardTypesHeld(card) {
+  if (!card) return [];
+  if (card.cardType === 'crystal_and_metal') return ['crystal', 'metal_crystal'];
+  return card.cardType ? [card.cardType] : [];
+}
+
+export function applyCombinedCustomerCaps(campaign, card) {
+  const caps = Array.isArray(campaign?.combinedCustomerCaps) ? campaign.combinedCustomerCaps : [];
+  if (!caps.length) return campaign;
+  const held = cardTypesHeld(card);
+  const active = caps.filter(c => Array.isArray(c.requiresCardTypes) && c.requiresCardTypes.length && c.requiresCardTypes.every(t => held.includes(t)));
+  if (!active.length) return campaign;
+  let out = { ...campaign, activeCombinedCaps: active };
+  const warnings = [...(campaign.decisionWarnings || [])];
+  for (const c of active) {
+    if (Number.isFinite(Number(c.periodCap)) && (out.periodCap == null || Number(c.periodCap) < Number(out.periodCap))) out.periodCap = Number(c.periodCap);
+    warnings.push(`${c.label}: kartlar toplamında aylık en fazla ${Number(c.periodCap).toLocaleString('tr-TR')} TL. Kart başına varlık seviyesi tavanı ayrıca geçerlidir; diğer kartla yapılan indirimler bu toplamdan düşer.`);
+  }
+  out.decisionWarnings = [...new Set(warnings)];
+  return out;
+}
+
 export function evaluateCampaign({ campaign, state, card, merchant, category, amount, locationScope = 'domestic', paymentChannel = 'physical', now = new Date(), staleAfterDays = 3 }) {
-  campaign = resolveSegmentCampaign(campaign, card);
+  campaign = applyCombinedCustomerCaps(resolveSegmentCampaign(campaign, card, now), card);
   const inspection = inspectCampaign({ campaign, card, merchant, category, amount, locationScope, paymentChannel, now });
   const normalizedState = ensureReset(campaign, state, now);
+
+  // Dönemi bitmiş sürekli ayrıcalık sessizce kaybolmamalı: başka engel yoksa bilgi amaçlı gösterilir.
+  const onlyInactive = inspection.blockers.length > 0 && inspection.blockers.every(b => b.code === 'inactive' || b.kind === 'actionable');
+  if (campaign.coreBenefit && onlyInactive && endDatePassed(campaign.endDate, now)) {
+    return {
+      campaign, eligible: false, potential: false, informational: true, coreExpired: true, inspection, state: normalizedState,
+      infoNote: `Bu sürekli ayrıcalığın doğrulanmış dönemi ${campaign.endDate} tarihinde sona erdi; yeni dönem koşulları henüz doğrulanmadı. Resmi sayfayı kontrol et.`
+    };
+  }
 
   if (!inspection.eligible) {
     const hardBlockers = inspection.blockers.filter(b => b.kind === 'hard');
     const actionableBlockers = inspection.blockers.filter(b => b.kind === 'actionable');
     const potential = hardBlockers.length === 0 && actionableBlockers.length > 0;
     const minBlock = actionableBlockers.find(b => b.code === 'min_spend');
-    const rewardAtThreshold = minBlock ? calcTheoreticalReward(campaign, minBlock.requiredAmount) : 0;
+    const rewardAtThreshold = minBlock ? calcCappedTheoreticalReward(campaign, minBlock.requiredAmount).reward : 0;
     return {
       campaign,
       eligible: false,
@@ -461,7 +619,8 @@ export function evaluateCampaign({ campaign, state, card, merchant, category, am
     return { campaign, eligible: false, potential: false, informational: true, inspection, state: normalizedState };
   }
 
-  const theoretical = calcTheoreticalReward(campaign, amount);
+  const capped = calcCappedTheoreticalReward(campaign, amount);
+  const theoretical = capped.reward;
   if (theoretical <= 0) {
     return { campaign, eligible: false, potential: false, informational: false, inspection: { ...inspection, reasons: [...inspection.reasons, 'Kazanç koşulu oluşmadı.'] }, state: normalizedState };
   }
@@ -478,6 +637,8 @@ export function evaluateCampaign({ campaign, state, card, merchant, category, am
   const actualBase = remainingKnown ? Math.min(theoretical, Math.max(0, Number(normalizedState.remainingLimit))) : null;
   const actual = enrollmentMissing || progressBlocksReward ? 0 : (progressUnknown ? null : actualBase);
   const extraWarnings = progress.note ? [progress.note] : [];
+  if (capped.periodCapApplied) extraWarnings.push(`İşlem bazlı hesap ${capped.perTransaction.toLocaleString('tr-TR', { maximumFractionDigits: 2 })} olurdu; dönem tavanı ${Number(campaign.periodCap).toLocaleString('tr-TR', { maximumFractionDigits: 2 })} ile sınırlandı.`);
+  if (!rawRemainingKnown) extraWarnings.push('Kalan dönem hakkı bilinmiyor; gösterilen değer dönem tavanıyla sınırlı teorik üst sınırdır. Bankadaki kalan hakkı doğrula.');
   if (rawRemainingKnown && freshnessInfo.status === 'stale') extraWarnings.push(`Kalan limit bilgisi eski (${freshnessInfo.label}); bankadaki güncel kalan hakkı doğrulamadan kesin kazanç hesaplanamaz.`);
   const conditional = inspection.warnings.length > 0 || campaign.rulesComplete === false || progressUnknown || freshnessInfo.status === 'stale';
 
@@ -488,6 +649,8 @@ export function evaluateCampaign({ campaign, state, card, merchant, category, am
     inspection: { ...inspection, warnings: [...inspection.warnings, ...extraWarnings] },
     state: normalizedState,
     theoreticalReward: theoretical,
+    perTransactionReward: capped.perTransaction,
+    periodCapApplied: capped.periodCapApplied,
     actualReward: actual,
     remainingKnown,
     enrollmentMissing,

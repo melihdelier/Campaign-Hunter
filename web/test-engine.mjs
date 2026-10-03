@@ -13,10 +13,17 @@ assert.equal(calcTheoreticalReward(tiered, 6000), 600);
 assert.equal(calcTheoreticalReward(tiered, 20000), 3000);
 
 const campaign={id:'c1', resetPolicy:'monthly', periodCap:8000, requiresEnrollment:false};
-const reset=ensureReset(campaign,{periodKey:'2026-08',remainingLimit:100},new Date('2026-09-23T12:00:00+03:00'));
+// v1.2.2: her yeni dönemde kalan hak bilinmiyor başlar; önceki dönem kullanıcı doğrulaması tam tavan üretmez.
+const reset=ensureReset(campaign,{periodKey:'2026-08',remainingLimit:100,valueSource:'user_confirmed',confirmedAt:'2026-08-20T10:00:00+03:00'},new Date('2026-09-23T12:00:00+03:00'));
 assert.equal(reset.periodKey,'2026-09');
-assert.equal(reset.remainingLimit,8000);
-assert.equal(reset.valueSource,'reset');
+assert.equal(reset.remainingLimit,null);
+assert.equal(reset.valueSource,'unknown');
+assert.equal(reset.confirmedAt,null);
+// Kaynağı belirsiz (doğrulanmamış) önceki değer yeni dönemde tam tavana dönüşmez.
+const unanchored=ensureReset(campaign,{periodKey:'2026-08',remainingLimit:100},new Date('2026-09-23T12:00:00+03:00'));
+assert.equal(unanchored.periodKey,'2026-09');
+assert.equal(unanchored.remainingLimit,null);
+assert.equal(unanchored.valueSource,'unknown');
 
 const firstSeen=ensureReset(campaign,null,new Date('2026-09-23T12:00:00+03:00'));
 assert.equal(firstSeen.periodKey,'2026-09');

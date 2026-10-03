@@ -66,7 +66,7 @@ class CampaignCrawlerTests(unittest.TestCase):
     def test_crystal_override(self):
         b=wrap('Otel Restoran İndirimleri', '''Crystal ile %20 indirim. Da Mario Etiler\nDa Mario İstinye Park\nGünaydın Restoran\nYapı Kredi POS ile geçerlidir.''')
         c=generic_parse(src('crystal_special','Yapı Kredi',['ykb-crystal']),'https://www.yapikredi.com.tr/bireysel-bankacilik/kartlar/otel-restoran-indirimleri',b,date(2026,9,23)); c=special_overrides(c)
-        self.assertEqual(c['rewardRule']['rate'],.20); self.assertTrue(any('Da Mario' in x for x in c['merchantScope'].get('values',[]))); self.assertEqual(c['segmentRules']['10 milyon TL+']['periodCap'],10000); self.assertEqual(c['segmentRules']['Metal Crystal']['periodCap'],15000)
+        self.assertEqual(c['rewardRule']['rate'],.20); self.assertTrue(any('Da Mario' in x for x in c['merchantScope'].get('values',[]))); self.assertEqual(c['segmentRules']['10 milyon TL+']['periodCap'],10000); self.assertNotIn('Metal Crystal', c['segmentRules']); self.assertEqual(c['combinedCustomerCaps'][0]['periodCap'],15000); self.assertEqual(c['combinedCustomerCaps'][0]['requiresCardTypes'],['crystal','metal_crystal'])
 
 
     def test_maximiles_black_hotel_user_band_override(self):

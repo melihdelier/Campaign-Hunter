@@ -1,4 +1,4 @@
-# Banka Kampanya Avcısı v1.2.1-supabase
+# Banka Kampanya Avcısı v1.2.2-supabase
 
 Bu paket Supabase projesine bağlanmış istemci ayarlarıyla gelir. Ayrıntı: `SUPABASE_BAGLANTI.md`.
 
@@ -145,7 +145,7 @@ Varsayılanlar:
 
 Uygulama tüm harcamalarınızı bilmez. Bu nedenle kampanya kalan hakları kullanıcı tarafından doğrulanabilir.
 
-- Kampanya reset kuralına göre ay/dönem başında otomatik başlangıç değeri oluşturulur.
+- Ay/dönem başında kalan hak "bilinmiyor" olarak yeniden başlar (v1.2.2); kullanıcı o dönem için doğrulayana kadar kesin kazanç hesaplanmaz.
 - `Kampanyalar > Güncelle` ile bankadaki gerçek kalan hakkı elle girebilirsiniz.
 - Varsayılan olarak 3 günden eski kalan-limit bilgisi **eski** sayılır.
 - Eski kalan-limit rakamı ekranda görünür ancak v1.0 karar motoru bunu artık kesin kazanç hesabında kullanmaz; sonuç teorik/koşullu gösterilir.
@@ -260,3 +260,28 @@ Bu paket installable PWA katmanını ekler:
 - 08:00 / 18:00 Türkiye saati için örnek GitHub Pages workflow'u
 
 Canlı internette kurulabilen PWA için HTTPS hosting gerekir. Ayrıntılar: `PWA_KURULUM.md`.
+
+## v1.2.2-supabase (2026-10-01 kod incelemesi düzeltmeleri)
+
+Şema/RLS değişmedi; Supabase migration gerekmez. GitHub değişkenleri/secret aynı kalır.
+
+**Faz 1 — karar motoru / PWA**
+- Sürekli ayrıcalıklar artık doğrulanmış **dönemler** (`validityPeriods`) taşıyabilir. Maximiles Black restoran ayrıcalığı Q3 + resmi Q4 (01.10–31.12.2026: 1 milyon TL altı 5.000 TL+ %5 / işlem 1.000 / aylık 2.000 TL; diğer segmentler 5.000–9.999 TL %10, 10.000 TL+ %20) kurallarıyla güncellendi.
+- Core ayrıcalık birden fazla **onaylı resmi kaynak** (`officialSources`, kaynak alias'ları) taşıyabilir. Kaynaklar bitiş tarihinde çelişirse `officialDateConflict` olarak temsil edilir, `dateConflictPolicy` (`latest_official` varsayılan / `earliest_official`) ile tarih seçilir ve sonuç koşullu/uyarılı olur. Crystal: Yapı Kredi sayfası 30.09.2026, Crystal resmi sitesi 31.10.2026; Crystal sitesi crawler kaynağına da eklendi.
+- Aynı id/URL aynı takvim ayında farklı başlangıç tarihli yeni bir kampanyaya dönüşürse kalan hak/ilerleme/katılım taşınmaz (bilinmiyor olur); yalnız bitiş tarihi uzayan aynı kampanyada durum korunur.
+- Canlı gözlem, **aynı resmi URL + aynı banka** ise ve daha geç, geçerli bir bitiş tarihi veriyorsa yalnız geçerlilik tarihini uzatır; ödül/segment kuralı son doğrulanmış dönemden taşınır ve sonuç uyarılı/koşullu gösterilir. Genel crawler verisi core kuralını ezemez.
+- Dönemi biten sürekli ayrıcalık (ör. Crystal, 30.09.2026) sessizce kaybolmaz: Hangi Kart?'ta "bilgi amaçlı / dönem bitti", katalogda "Dönem bitti · doğrulama bekliyor" olarak görünür.
+- `user_private` kampanyalar katalog yeniden yüklemede ve bulut gidiş-dönüşünde korunur (birleşim; boş liste silme sebebi değildir).
+- Teorik kazanç dönem (aylık) tavanıyla sınırlanır; kalan hak bilinmiyorsa "teorik en fazla … · kalan dönem hakkı bilinmiyor" gösterilir ve sıralama tavanlı değerle yapılır.
+- `enrollmentScope: 'program'` (Wings Program Ayrıcalıkları) ay değişiminde katılımı sıfırlamaz; kampanyaya özel katılım her dönemde yeniden doğrulanır.
+- `/api/*` yerel sunucu uçları yalnız localhost'ta çağrılır; GitHub Pages'te polling yok.
+- Düşük riskli: tek sürüm kaynağı (`web/version.js`, `VERSION.txt`, SW önbellek adı), `publish_supabase.py` her yayında `updated_at` günceller, işyeri sözlüğünde yalnız birebir alias manuel kategoriyi düzeltir, segment değişince "Kullanıcı doğruladı" etiketi kalmaz.
+
+**Faz 2 — CI son başarılı katalog + kalite kapısı**
+- `server/catalog_guard.py fetch-lkg`: tarama öncesi Supabase snapshot (publishable key ile okuma) ve yayındaki Pages kataloğundan en yenisini alır, crawler'ın son-başarılı mekanizmasını besler.
+- `server/catalog_guard.py evaluate`: `ok` / `repaired` (son başarılı katalogda en az 1 geçerli kaydı olan kaynak sıfıra düşerse veya ciddi düşüş → o kaynak için son başarılı kayıtlar korunur) / `rejected` (toplam ciddi düşüş, çoğu kaynak bozuk, tarama hatası → yayındaki katalog korunur, Supabase'e yazılmaz). Workflow'daki `catalog-health` işi `rejected` durumunda kırmızı olur. **Fail-closed:** Supabase ve Pages'ten son başarılı katalog alınamazsa yayın ve dağıtım engellenir; yalnız ilk kurulumda workflow elle `allow_bootstrap` girdisiyle çalıştırılarak geçilebilir.
+- `reconcileCampaignStates` kullanıcı ilerlemesini silmez: geçici kaybolan kampanyanın durumu saklanır, id değişiminde aynı URL (yoksa tekil banka+başlık) ile yeni id'ye taşınır.
+- **Kalan hak varsayılmaz:** başlangıç (bootstrap) durumları kalan hak taşımaz ve **her yeni aylık/kampanya döneminde kalan hak bilinmiyor başlar** — önceki dönem kullanıcı tarafından doğrulanmış olsa bile tam tavan varsayılmaz (kullanıcı uygulamayı açmadan önce harcamış olabilir). Kalan hak sıralamayı yalnız o dönem yeniden doğrulandıktan sonra etkiler; tavanlı teorik kazanç görünür kalır. Program katılımı (Wings) korunur.
+- **Crystal tavanları:** kart başına varlık seviyesi aylık 3.000 / 5.000 / 7.500 / 10.000 TL; "Metal Crystal" artık segment değil, kart tipi (Crystal / Metal Crystal / ikisi birden). Metal Crystal + Crystal birlikte taşıyan müşteri için ayrı `combinedCustomerCaps` kuralı: iki kart toplamında aylık en fazla 15.000 TL.
+- **Crystal tarih crawler'ı:** core kaynak sayfalarında "İndirimler 31.10.2026 tarihine kadar geçerlidir" gibi açık geçerlilik cümlesi doğrudan okunur ve sayfadaki ilgisiz tarih aralıklarına göre önceliklidir.
+- **Türkiye takvimi:** dönem anahtarları ve geçerlilik başlangıç/bitiş karşılaştırmaları `web/tr-time.js` ile Europe/Istanbul takvim günü (`YYYY-MM-DD`) üzerinden yapılır; cihazın/Node'un saat diliminden bağımsızdır. Crawler ve kalite kapısı da "bugün"ü Istanbul tarihine göre alır. `cd web && npm test` tüm JS paketlerini Europe/Istanbul, UTC, America/Los_Angeles ve Pacific/Kiritimati altında çalıştırır; CI'da testler (Python UTC + Istanbul, JS çoklu saat dilimi) tarama/yayından önce koşar.

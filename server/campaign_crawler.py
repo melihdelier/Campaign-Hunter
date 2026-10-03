@@ -26,6 +26,17 @@ RAW_DIR = DATA_DIR / "raw"
 STATUS_FILE = DATA_DIR / "refresh_status.json"
 LOCK_FILE = DATA_DIR / "refresh.lock"
 
+# Kampanya takvimi Türkiye saatine (Europe/Istanbul) göredir; çalışma ortamının (GitHub runner = UTC) saatine değil.
+try:
+    from zoneinfo import ZoneInfo
+    TR_TZ = ZoneInfo("Europe/Istanbul")
+except Exception:  # tzdata yoksa: Türkiye 2016'dan beri sabit UTC+3
+    TR_TZ = timezone(timedelta(hours=3))
+
+
+def today_tr() -> date:
+    return datetime.now(TR_TZ).date()
+
 
 class RefreshAlreadyRunning(RuntimeError):
     pass
@@ -378,6 +389,48 @@ def iso_date(y: int, m: int, d: int) -> str | None:
     except ValueError: return None
 
 
+# Doğrulanmış sürekli ayrıcalıkların resmi kaynak sayfaları (core benefit + onaylı alias'lar).
+CORE_SOURCE_MARKERS = (
+    "wingscard.com.tr/ayricaliklar/tum-restoranlarda-15e-varan-indirim",
+    "maximiles-black-ile-restoranlarda-20-indirim-ayricaligi",
+    "teb.com.tr/kart-dunyasi-otel-restoran-indirimi",
+    "yapikredi.com.tr/bireysel-bankacilik/kartlar/otel-restoran-indirimleri",
+    # Crystal resmi sitesi: aynı core ayrıcalığın onaylı ikinci resmi kaynağı (officialSources alias).
+    "crystalcard.com.tr/crystal-dunyasi/yurtici-anlasmali-otel-and-restoran-indirimleri",
+)
+
+
+def is_core_source_url(url: str) -> bool:
+    low = (url or "").lower()
+    return any(m in low for m in CORE_SOURCE_MARKERS)
+
+
+# "İndirimler 31.10.2026 tarihine kadar geçerlidir" gibi AÇIK geçerlilik cümlesi. Yalnız core kaynak sayfalarında
+# öncelikli kullanılır; sayfadaki başka tarih aralıkları (ör. restoran listesi duyuruları) bitiş tarihini ezemez.
+EXPLICIT_VALIDITY_RE = re.compile(
+    r"(?:[İIi]ndirimler|[İIi]ndirim|[Aa]yrıcalıklar|[Aa]yrıcalık|[Kk]ampanya)\s+"
+    r"(\d{1,2})[./](\d{1,2})[./](20\d{2})(?:[’']?(?:ye|ya|e|a))?\s+(?:tarihine\s+)?kadar\s+geçerli(?:dir)?"
+)
+
+
+def explicit_validity_end(text: str) -> str | None:
+    m = EXPLICIT_VALIDITY_RE.search(text or "")
+    return iso_date(int(m[3]), int(m[2]), int(m[1])) if m else None
+
+
+def core_source_dates(url: str, text: str, today: date) -> tuple[str | None, str | None]:
+    start, end = parse_date_range(text, today)
+    if is_core_source_url(url):
+        explicit = explicit_validity_end(text)
+        if explicit:
+            # Başlangıç yalnız aynı aralıktan geliyorsa (aralık bitişi açık cümleyle aynı) güvenilir; aksi halde
+            # sayfadaki ilgisiz bir tarih aralığından sızmış olabilir → bilinmiyor.
+            if end != explicit or (start and start > explicit):
+                start = None
+            end = explicit
+    return start, end
+
+
 def parse_date_range(text: str, today: date) -> tuple[str | None, str | None]:
     # 01.09.2026 - 30.09.2026
     m = re.search(r"(\d{1,2})[./](\d{1,2})[./](20\d{2})\s*[-–—]\s*(\d{1,2})[./](\d{1,2})[./](20\d{2})", text)
@@ -397,8 +450,12 @@ def parse_date_range(text: str, today: date) -> tuple[str | None, str | None]:
     m = re.search(rf"(\d{{1,2}})\s+({month_re})\s*[-–—]\s*(\d{{1,2}})\s+({month_re})\s+(20\d{{2}})", text, flags=re.I)
     if m:
         y=int(m[5]); return iso_date(y, TR_MONTHS[m[2].lower()], int(m[1])), iso_date(y, TR_MONTHS[m[4].lower()], int(m[3]))
-    # until 30 Eylül 2026 / 30 Eylül 2026'ya kadar. Start unknown.
-    m = re.search(rf"(\d{{1,2}})\s+({month_re})\s+(20\d{{2}})[’']?(?:ye|ya)?\s+kadar", text, flags=re.I)
+    # 31.10.2026 tarihine kadar / 31.10.2026'ya kadar. Start unknown.
+    m = re.search(r"(\d{1,2})[./](\d{1,2})[./](20\d{2})(?:[’']?(?:ye|ya|e|a))?\s+(?:tarihine\s+)?kadar", text, flags=re.I)
+    if m:
+        return None, iso_date(int(m[3]), int(m[2]), int(m[1]))
+    # until 30 Eylül 2026 / 30 Eylül 2026'ya kadar / 30 Eylül 2026 tarihine kadar. Start unknown.
+    m = re.search(rf"(\d{{1,2}})\s+({month_re})\s+(20\d{{2}})(?:[’']?(?:ye|ya)?\s+|\s+tarihine\s+)kadar", text, flags=re.I)
     if m:
         return None, iso_date(int(m[3]), TR_MONTHS[m[2].lower()], int(m[1]))
     # campaign validity text with single start date '1 Ocak 2026 tarihinden itibaren'
@@ -857,7 +914,7 @@ def generic_parse(source: dict, url: str, body: bytes, today: date, category_hin
         return None
     ok,reasons=eligible_for_source(source,title,text)
     if not ok: return None
-    start,end=parse_date_range(text,today)
+    start,end=core_source_dates(url,text,today)
     # expired campaigns not needed in active catalog (7-day grace for debugging)
     if end:
         try:
@@ -960,19 +1017,12 @@ def known_core_fallback(source: dict, url: str, body: bytes, today: date) -> dic
     the verified segment/reward rules. This prevents a core benefit disappearing
     merely because the public page rendering changed.
     """
-    low=url.lower()
-    markers=(
-        "wingscard.com.tr/ayricaliklar/tum-restoranlarda-15e-varan-indirim",
-        "maximiles-black-ile-restoranlarda-20-indirim-ayricaligi",
-        "teb.com.tr/kart-dunyasi-otel-restoran-indirimi",
-        "yapikredi.com.tr/bireysel-bankacilik/kartlar/otel-restoran-indirimleri",
-    )
-    if not any(m in low for m in markers):
+    if not is_core_source_url(url):
         return None
     page=parse_page(body)
     text=page.get("text") or ""
     title=page.get("title") or "Sürekli Kart Ayrıcalığı"
-    start,end=parse_date_range(text,today)
+    start,end=core_source_dates(url,text,today)
     cats=detect_categories(title,text) or ["restoran"]
     scope=detect_merchant_scope(title,text,cats,source["key"],page.get("headings",[])) if text else {"kind":"restricted_unknown"}
     slug=hashlib.sha1(url.encode("utf-8")).hexdigest()[:16]
@@ -1107,14 +1157,15 @@ def special_overrides(c: dict) -> dict:
         })
     if "otel-restoran-indirimleri" in url and c.get("bank")=="Yapı Kredi":
         c.update({
-            "eligibility":{"segmentLabels":["1 milyon TL altı","1–6 milyon TL","6–10 milyon TL","10 milyon TL+","Metal Crystal"]},"categories":["restoran","otel"],
+            "eligibility":{"segmentLabels":["1 milyon TL altı","1–6 milyon TL","6–10 milyon TL","10 milyon TL+"]},"categories":["restoran","otel"],
             "segmentRules":{
                 "1 milyon TL altı":{"rewardRule":{"kind":"percent","rate":0.20,"minSpend":0,"perTransactionCap":1500},"periodCap":3000,"rulesComplete":True},
                 "1–6 milyon TL":{"rewardRule":{"kind":"percent","rate":0.20,"minSpend":0,"perTransactionCap":2500},"periodCap":5000,"rulesComplete":True},
                 "6–10 milyon TL":{"rewardRule":{"kind":"percent","rate":0.20,"minSpend":0,"perTransactionCap":3000},"periodCap":7500,"rulesComplete":True},
                 "10 milyon TL+":{"rewardRule":{"kind":"percent","rate":0.20,"minSpend":0,"perTransactionCap":4000},"periodCap":10000,"rulesComplete":True},
-                "Metal Crystal":{"rewardRule":{"kind":"percent","rate":0.20,"minSpend":0,"perTransactionCap":6000},"periodCap":15000,"rulesComplete":True},
             },
+            # Metal Crystal + Crystal birlikte: iki kart toplamında aylık en fazla 15.000 TL (ayrı müşteri kuralı; segment değil).
+            "combinedCustomerCaps":[{"id":"crystal_plus_metal","label":"Metal Crystal + Crystal birlikte (iki kart toplamı)","requiresCardTypes":["crystal","metal_crystal"],"periodCap":15000,"resetPolicy":"monthly","scope":"customer_across_cards"}],
             "rewardRule":{"kind":"percent","rate":0.20,"minSpend":0,"perTransactionCap":1500},
             "periodCap":3000,"resetPolicy":"monthly","rulesComplete":c.get("merchantScope",{}).get("kind")!="restricted_unknown",
         })
@@ -1260,7 +1311,7 @@ def dedupe_campaigns(items: list[dict]) -> list[dict]:
 
 def _refresh_catalog_impl(max_per_source: int=90) -> dict:
     DATA_DIR.mkdir(parents=True,exist_ok=True); RAW_DIR.mkdir(parents=True,exist_ok=True)
-    now=datetime.now(timezone.utc); today=datetime.now().astimezone().date()
+    now=datetime.now(timezone.utc); today=today_tr()
     sources=load_config()
     atomic_json(STATUS_FILE,{"state":"running","stage":"starting","last_started_at":now.isoformat(),"campaign_count":0,"error_count":0,"source_index":0,"source_count":len(sources)})
     print("Banka Kampanya Avcisi - canli kampanya taramasi", flush=True)
@@ -1319,7 +1370,7 @@ def _refresh_catalog_impl(max_per_source: int=90) -> dict:
                     elif err:
                         errs.append(err)
                         if url in old:
-                            stale=dict(old[url]); stale["decisionWarnings"]=list(dict.fromkeys((stale.get("decisionWarnings") or [])+["Bu taramada kaynak sayfası okunamadı; son başarılı kayıt gösteriliyor."]))
+                            stale=dict(old[url]); stale["staleFromLastKnownGood"]=True; stale["decisionWarnings"]=list(dict.fromkeys((stale.get("decisionWarnings") or [])+["Bu taramada kaynak sayfası okunamadı; son başarılı kayıt gösteriliyor."]))
                             kept_items.append(stale)
                     if done==1 or done%5==0 or done==len(ordered):
                         print(f"  ilerleme {done}/{len(ordered)} · uygun {len(kept_items)} · hata {len(errs)}", flush=True)
@@ -1329,7 +1380,7 @@ def _refresh_catalog_impl(max_per_source: int=90) -> dict:
             stale_count=0
             for stale0 in old.values():
                 if stale0.get("sourceKey")==key or str(stale0.get("id","")).startswith(f"live-{key}-"):
-                    stale=dict(stale0)
+                    stale=dict(stale0); stale["staleFromLastKnownGood"]=True
                     stale["decisionWarnings"]=list(dict.fromkeys((stale.get("decisionWarnings") or [])+["Bu kaynak bu taramada kullanılabilir kayıt üretmedi; son başarılı katalog kaydı korunuyor."]))
                     kept_items.append(stale); stale_count += 1
             if stale_count:
@@ -1349,7 +1400,7 @@ def _refresh_catalog_impl(max_per_source: int=90) -> dict:
 
     if not campaigns and old:
         for stale0 in old.values():
-            stale=dict(stale0); stale["decisionWarnings"]=list(dict.fromkeys((stale.get("decisionWarnings") or [])+["Canlı tarama başarısız; son başarılı katalog kaydı korunuyor."]))
+            stale=dict(stale0); stale["staleFromLastKnownGood"]=True; stale["decisionWarnings"]=list(dict.fromkeys((stale.get("decisionWarnings") or [])+["Canlı tarama başarısız; son başarılı katalog kaydı korunuyor."]))
             campaigns.append(stale)
 
     campaigns=dedupe_campaigns(campaigns)

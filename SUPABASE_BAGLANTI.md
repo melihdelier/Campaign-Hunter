@@ -1,4 +1,4 @@
-# Supabase bağlantısı — v1.2.1-supabase
+# Supabase bağlantısı — v1.2.2-supabase
 
 Bu paket aşağıdaki Supabase projesine bağlanacak şekilde hazırlanmıştır:
 

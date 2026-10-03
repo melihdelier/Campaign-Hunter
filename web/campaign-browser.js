@@ -1,3 +1,4 @@
+import { trDay, toTrDay } from './tr-time.js';
 export const CAMPAIGN_BROWSER_CATEGORIES = [
   ['all','Tüm kategoriler'],
   ['akaryakit','Akaryakıt / Otogaz'],
@@ -41,17 +42,14 @@ export function campaignMatchesCategory(campaign, category) {
   return campaignCategories(campaign).some(c => fold(c) === wanted);
 }
 
+// Türkiye takvim günü (Europe/Istanbul) ile karşılaştırılır; cihaz saat diliminden bağımsız.
 export function campaignActiveNow(campaign, now = new Date()) {
   if (!campaign || campaign.status === 'inactive') return false;
-  const day = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  if (campaign.startDate) {
-    const start = new Date(`${campaign.startDate}T00:00:00`);
-    if (!Number.isNaN(start.getTime()) && day < start) return false;
-  }
-  if (campaign.endDate) {
-    const end = new Date(`${campaign.endDate}T23:59:59`);
-    if (!Number.isNaN(end.getTime()) && day > end) return false;
-  }
+  const day = trDay(now);
+  const start = toTrDay(campaign.startDate);
+  const end = toTrDay(campaign.endDate);
+  if (start && day < start) return false;
+  if (end && day > end) return false;
   return true;
 }
 
@@ -106,8 +104,13 @@ export function groupCampaignsByCard({campaigns, cards, category='all', resolveC
     const items = [];
     const seen = new Set();
     for (const raw of campaigns || []) {
-      const c = resolveCampaign(raw, card) || raw;
-      if (!campaignActiveNow(c, now)) continue;
+      let c = resolveCampaign(raw, card, now) || raw;
+      if (!campaignActiveNow(c, now)) {
+        // Dönemi bitmiş sürekli kart ayrıcalığı listeden sessizce düşmez; "dönem bitti" işaretiyle kalır.
+        const ended = c.coreBenefit && toTrDay(c.endDate) && trDay(now) > toTrDay(c.endDate) && c.status !== 'inactive';
+        if (!ended) continue;
+        c = { ...c, expiredCore: true };
+      }
       if (!campaignMatchesCategory(c, category)) continue;
       if (!campaignAppliesToCard(c, card)) continue;
       const key = c.id || `${c.bank}|${c.title}`;

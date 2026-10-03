@@ -1,4 +1,4 @@
--- Banka Kampanya Avcisi v1.2.0 PWA - Supabase tek seferlik kurulum
+-- Banka Kampanya Avcisi - Supabase tek seferlik kurulum (sema v1.2.0; uygulama v1.2.2-supabase ile degismeden uyumlu)
 -- YENI/BOS Supabase projesinde bir kez calistirin.
 -- Kart numarasi, CVV, son kullanma tarihi veya banka giris bilgisi tutmaz.
 

@@ -311,7 +311,9 @@
     ],
     "domains": [
       "www.yapikredi.com.tr",
-      "yapikredi.com.tr"
+      "yapikredi.com.tr",
+      "www.crystalcard.com.tr",
+      "crystalcard.com.tr"
     ],
     "listing_urls": [
       "https://www.yapikredi.com.tr/bireysel-bankacilik/kartlar/otel-restoran-indirimleri"
@@ -320,10 +322,12 @@
       "https://www.yapikredi.com.tr/sitemap.xml"
     ],
     "include_url_substrings": [
-      "/bireysel-bankacilik/kartlar/otel-restoran-indirimleri"
+      "/bireysel-bankacilik/kartlar/otel-restoran-indirimleri",
+      "/crystal-dunyasi/yurtici-anlasmali-otel-and-restoran-indirimleri"
     ],
     "fallback_urls": [
-      "https://www.yapikredi.com.tr/bireysel-bankacilik/kartlar/otel-restoran-indirimleri"
+      "https://www.yapikredi.com.tr/bireysel-bankacilik/kartlar/otel-restoran-indirimleri",
+      "https://www.crystalcard.com.tr/crystal-dunyasi/yurtici-anlasmali-otel-and-restoran-indirimleri"
     ]
   },
   {
