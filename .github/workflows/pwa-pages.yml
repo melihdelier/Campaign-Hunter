@@ -36,6 +36,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
+      - name: PostgreSQL ikilileri (Supabase RLS testleri icin)
+        run: |
+          ls /usr/lib/postgresql/*/bin/initdb 2>/dev/null || (sudo apt-get update && sudo apt-get install -y postgresql)
+          ls /usr/lib/postgresql/*/bin/initdb
       - name: Python testleri (TZ=UTC)
         env:
           TZ: UTC
@@ -47,6 +51,13 @@ jobs:
       - name: JS testleri (Europe/Istanbul, UTC, America/Los_Angeles, Pacific/Kiritimati)
         working-directory: web
         run: npm test
+      - name: Tarayici UI smoke testi (Playwright/Chromium, Istanbul + UTC)
+        working-directory: web
+        run: |
+          npm install --no-save --no-audit --no-fund playwright@1.56.0
+          npx playwright install --with-deps chromium
+          node e2e/ui-smoke.mjs
+          node e2e/account-smoke.mjs
   build:
     needs: test
     runs-on: ubuntu-latest
@@ -86,6 +97,22 @@ jobs:
           cp server/data/catalog.json web/data/catalog.json
       - name: Supabase katalog snapshot yayinla (ayarliysa)
         run: python server/publish_supabase.py
+      - name: Build kimligini yaz (Info ekrani + service worker onbellek yenileme)
+        run: |
+          python - <<'PY'
+          import json, os, pathlib, re, datetime
+          sha = os.getenv('GITHUB_SHA', '')
+          run = os.getenv('GITHUB_RUN_NUMBER', '')
+          build = {'id': f"{run}-{sha[:7]}" if sha else 'ci', 'commit': sha or None,
+                   'builtAt': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'runNumber': run or None}
+          pathlib.Path('web/build-info.js').write_text('export const BUILD_INFO = ' + json.dumps(build) + ';\n', encoding='utf-8')
+          sw = pathlib.Path('web/sw.js'); text = sw.read_text(encoding='utf-8')
+          # Her dagitimda sw.js baytlari degisir -> tarayici yeni SW'yi kurar, eski onbellekleri siler.
+          text, n = re.subn(r"const CACHE='(bka-[^']+)';", lambda m: f"const CACHE='{m.group(1)}-{build['id']}';", text, count=1)
+          assert n == 1, 'sw.js CACHE satiri bulunamadi'
+          sw.write_text(text, encoding='utf-8')
+          print(build)
+          PY
       - name: Runtime PWA ayarlarini yaz
         run: |
           python - <<'PY'
