@@ -97,7 +97,7 @@ assert.ok(tebResult.potentials.some(x => x.inspection.reasons.some(y => y.includ
 // Segment seçimi kampanya kuralını gerçekten değiştirmeli.
 {
   const crystal = initialCampaigns.find(c => c.id === 'official-ykb-crystal-restoran-2026-09');
-  const crystalCard = {...initialCards.find(c => c.cardProductId === 'ykb-crystal'), segment:'10 milyon TL+'};
+  const crystalCard = {...initialCards.find(c => c.cardProductId === 'ykb-crystal'), segment:'band_4'};
   const r = evaluateCampaign({campaign:crystal,state:{campaignId:crystal.id,periodKey:'2026-09',enrollmentStatus:'not_required',remainingLimit:10000,valueSource:'user_confirmed',confirmedAt:'2026-09-23T10:00:00+03:00',updatedAt:'2026-09-23T10:00:00+03:00'},card:crystalCard,merchant:'Da Mario',category:'restoran',amount:25000,locationScope:'domestic',paymentChannel:'physical',now:new Date('2026-09-23T12:00:00+03:00')});
   assert.equal(r.campaign.rewardRule.perTransactionCap,4000);
   assert.equal(r.campaign.periodCap,10000);
@@ -105,7 +105,7 @@ assert.ok(tebResult.potentials.some(x => x.inspection.reasons.some(y => y.includ
 }
 {
   const maxi = initialCampaigns.find(c => c.id === 'official-is-restoran-2026q3');
-  const maxiCard = {...initialCards.find(c => c.cardProductId === 'is-maximiles-black'), segment:'1 milyon TL altı'};
+  const maxiCard = {...initialCards.find(c => c.cardProductId === 'is-maximiles-black'), segment:'band_1'};
   const r = evaluateCampaign({campaign:maxi,state:{campaignId:maxi.id,periodKey:'2026-09',enrollmentStatus:'not_required',remainingLimit:2000,valueSource:'user_confirmed',confirmedAt:'2026-09-23T10:00:00+03:00',updatedAt:'2026-09-23T10:00:00+03:00'},card:maxiCard,merchant:'Test Restoran',category:'restoran',amount:10000,locationScope:'domestic',paymentChannel:'physical',now:new Date('2026-09-23T12:00:00+03:00')});
   assert.equal(r.campaign.rewardRule.rate,0.05);
   assert.equal(r.campaign.periodCap,2000);

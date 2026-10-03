@@ -153,14 +153,14 @@
       ],
       "eligibility": {
         "segmentLabels": [
-          "1 milyon TL altı",
-          "1–4 milyon TL",
-          "4–8 milyon TL",
-          "8 milyon TL+"
+          "band_1",
+          "band_2",
+          "band_3",
+          "band_4"
         ]
       },
       "segmentRules": {
-        "1 milyon TL altı": {
+        "band_1": {
           "rewardRule": {
             "kind": "percent",
             "rate": 0.05,
@@ -170,7 +170,7 @@
           "periodCap": 2000,
           "rulesComplete": true
         },
-        "1–4 milyon TL": {
+        "band_2": {
           "rewardRule": {
             "kind": "tiered_percent",
             "tiers": [
@@ -189,7 +189,7 @@
           "periodCap": 4000,
           "rulesComplete": true
         },
-        "4–8 milyon TL": {
+        "band_3": {
           "rewardRule": {
             "kind": "tiered_percent",
             "tiers": [
@@ -208,7 +208,7 @@
           "periodCap": 8000,
           "rulesComplete": true
         },
-        "8 milyon TL+": {
+        "band_4": {
           "rewardRule": {
             "kind": "tiered_percent",
             "tiers": [
@@ -376,15 +376,15 @@
       ],
       "eligibility": {
         "segmentLabels": [
-          "1 milyon TL altı",
-          "1–6 milyon TL",
-          "6–10 milyon TL",
-          "10 milyon TL+",
+          "band_1",
+          "band_2",
+          "band_3",
+          "band_4",
           "Metal Crystal"
         ]
       },
       "segmentRules": {
-        "1 milyon TL altı": {
+        "band_1": {
           "rewardRule": {
             "kind": "percent",
             "rate": 0.2,
@@ -394,7 +394,7 @@
           "periodCap": 3000,
           "rulesComplete": true
         },
-        "1–6 milyon TL": {
+        "band_2": {
           "rewardRule": {
             "kind": "percent",
             "rate": 0.2,
@@ -404,7 +404,7 @@
           "periodCap": 5000,
           "rulesComplete": true
         },
-        "6–10 milyon TL": {
+        "band_3": {
           "rewardRule": {
             "kind": "percent",
             "rate": 0.2,
@@ -414,7 +414,7 @@
           "periodCap": 7500,
           "rulesComplete": true
         },
-        "10 milyon TL+": {
+        "band_4": {
           "rewardRule": {
             "kind": "percent",
             "rate": 0.2,

@@ -1,4 +1,5 @@
 import { trDay, toTrDay } from './tr-time.js';
+import { evaluateCampaignForCard, buildEligibilityContext } from './eligibility.js';
 export const CAMPAIGN_BROWSER_CATEGORIES = [
   ['all','Tüm kategoriler'],
   ['akaryakit','Akaryakıt / Otogaz'],
@@ -53,16 +54,12 @@ export function campaignActiveNow(campaign, now = new Date()) {
   return true;
 }
 
-export function campaignAppliesToCard(campaign, card) {
+// v1.4.1: Hangi Kart? ile AYNI değerlendirici (eligibility.js). Ayrı filtre mantığı yoktur.
+// (Eski sürümde cardProductIds boş kampanya burada tüm kartlara "uygun" görünüyor, motorda ise reddediliyordu;
+//  artık iki ekran da reddeder.)
+export function campaignAppliesToCard(campaign, card, eligibilityContext = null) {
   if (!campaign || !card?.active) return false;
-  const ids = campaign.cardProductIds || [];
-  if (ids.length && !ids.includes(card.cardProductId)) return false;
-  const labels = campaign.eligibility?.segmentLabels || [];
-  if (labels.length) {
-    const current = fold(card.segment);
-    if (!labels.some(x => fold(x) === current)) return false;
-  }
-  return true;
+  return evaluateCampaignForCard(campaign, card, eligibilityContext || buildEligibilityContext({ cards: [card] })).eligible;
 }
 
 export function merchantScopeInfo(campaign) {
@@ -99,7 +96,8 @@ export function paymentScopeInfo(campaign) {
   return { channels, location, requiredPos: tx.requiredPos || null };
 }
 
-export function groupCampaignsByCard({campaigns, cards, category='all', resolveCampaign=(c)=>c, now=new Date()}) {
+export function groupCampaignsByCard({campaigns, cards, category='all', resolveCampaign=(c)=>c, now=new Date(), eligibilityContext=null}) {
+  const ctx = eligibilityContext || buildEligibilityContext({ cards: (cards || []).filter(c => c.active) });
   return (cards || []).filter(c => c.active).map(card => {
     const items = [];
     const seen = new Set();
@@ -112,7 +110,7 @@ export function groupCampaignsByCard({campaigns, cards, category='all', resolveC
         c = { ...c, expiredCore: true };
       }
       if (!campaignMatchesCategory(c, category)) continue;
-      if (!campaignAppliesToCard(c, card)) continue;
+      if (!campaignAppliesToCard(c, card, ctx)) continue;
       const key = c.id || `${c.bank}|${c.title}`;
       if (seen.has(key)) continue;
       seen.add(key);

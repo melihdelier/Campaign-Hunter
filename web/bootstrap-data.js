@@ -2,8 +2,8 @@ export const initialCards = [
   { id: 'uc-qnb', bank: 'QNB', name: 'Miles&Smiles QNB Private', segment: 'Private', cardProductId: 'qnb-ms-private', active: true },
   { id: 'uc-akbank-elite', bank: 'Akbank', name: 'Wings Elite', segment: 'Black Plus / 2 milyon TL+', cardProductId: 'akbank-wings-elite', active: true },
   { id: 'uc-akbank-black', bank: 'Akbank', name: 'Wings Black', segment: 'Black Plus / 2 milyon TL+', cardProductId: 'akbank-wings-black', active: true },
-  { id: 'uc-is', bank: 'İş Bankası', name: 'Maximiles Black', segment: '4–8 milyon TL', cardProductId: 'is-maximiles-black', active: true },
-  { id: 'uc-ykb', bank: 'Yapı Kredi', name: 'Crystal', segment: '1 milyon TL altı', cardProductId: 'ykb-crystal', active: true },
+  { id: 'uc-is', bank: 'İş Bankası', name: 'Maximiles Black', segment: 'band_3', cardProductId: 'is-maximiles-black', active: true },
+  { id: 'uc-ykb', bank: 'Yapı Kredi', name: 'Crystal', segment: 'band_1', cardProductId: 'ykb-crystal', active: true },
   { id: 'uc-teb', bank: 'TEB', name: 'TEB Özel Infinite', segment: 'Ultra', cardProductId: 'teb-infinite', active: true }
 ];
 
@@ -62,16 +62,16 @@ export const initialCampaigns = [
   {
     // id dönemler arasında sabit tutulur; kullanıcı limit/katılım durumu bu anahtara bağlıdır.
     id: 'official-is-restoran-2026q3', coreBenefit: true, bank: 'İş Bankası', title: 'Maximiles Black — Restoranlarda %20’ye Varan İndirim', demo: false,
-    cardProductIds: ['is-maximiles-black'], eligibility: { segmentLabels: ['1 milyon TL altı','1–4 milyon TL','4–8 milyon TL','8 milyon TL+'] },
+    cardProductIds: ['is-maximiles-black'], eligibility: { segmentLabels: ['band_1','band_2','band_3','band_4'] },
     // Doğrulanmış dönemler. Motor tarihe göre geçerli dönemi seçer (resolveValidityPeriod).
     validityPeriods: [
       {
         id: '2026q3', startDate: '2026-07-01', endDate: '2026-09-30', periodCap: 8000,
         segmentRules: {
-      '1 milyon TL altı': { rewardRule: { kind:'percent', rate:0.05, minSpend:4000, perTransactionCap:1000 }, periodCap:2000, rulesComplete:true },
-      '1–4 milyon TL': { rewardRule: { kind:'tiered_percent', tiers:[{min:4000,max:7999.99,rate:0.10},{min:8000,rate:0.20}], perTransactionCap:1750 }, periodCap:4000, rulesComplete:true },
-      '4–8 milyon TL': { rewardRule: { kind:'tiered_percent', tiers:[{min:4000,max:7999.99,rate:0.10},{min:8000,rate:0.20}], perTransactionCap:3000 }, periodCap:8000, rulesComplete:true },
-      '8 milyon TL+': { rewardRule: { kind:'tiered_percent', tiers:[{min:4000,max:7999.99,rate:0.10},{min:8000,rate:0.20}], perTransactionCap:3000 }, periodCap:10000, rulesComplete:true }
+      'band_1': { rewardRule: { kind:'percent', rate:0.05, minSpend:4000, perTransactionCap:1000 }, periodCap:2000, rulesComplete:true },
+      'band_2': { rewardRule: { kind:'tiered_percent', tiers:[{min:4000,max:7999.99,rate:0.10},{min:8000,rate:0.20}], perTransactionCap:1750 }, periodCap:4000, rulesComplete:true },
+      'band_3': { rewardRule: { kind:'tiered_percent', tiers:[{min:4000,max:7999.99,rate:0.10},{min:8000,rate:0.20}], perTransactionCap:3000 }, periodCap:8000, rulesComplete:true },
+      'band_4': { rewardRule: { kind:'tiered_percent', tiers:[{min:4000,max:7999.99,rate:0.10},{min:8000,rate:0.20}], perTransactionCap:3000 }, periodCap:10000, rulesComplete:true }
     },
         rewardRule: { kind:'tiered_percent', tiers:[{min:4000,max:7999.99,rate:0.10},{min:8000,rate:0.20}], perTransactionCap:3000 },
         verifiedAt: '2026-09-23T20:30:00+03:00',
@@ -80,10 +80,10 @@ export const initialCampaigns = [
       {
         id: '2026q4', startDate: '2026-10-01', endDate: '2026-12-31', periodCap: 8000,
         segmentRules: {
-      '1 milyon TL altı': { rewardRule: { kind:'percent', rate:0.05, minSpend:5000, perTransactionCap:1000 }, periodCap:2000, rulesComplete:true },
-      '1–4 milyon TL': { rewardRule: { kind:'tiered_percent', tiers:[{min:5000,max:9999.99,rate:0.10},{min:10000,rate:0.20}], perTransactionCap:2000 }, periodCap:4000, rulesComplete:true },
-      '4–8 milyon TL': { rewardRule: { kind:'tiered_percent', tiers:[{min:5000,max:9999.99,rate:0.10},{min:10000,rate:0.20}], perTransactionCap:3000 }, periodCap:8000, rulesComplete:true },
-      '8 milyon TL+': { rewardRule: { kind:'tiered_percent', tiers:[{min:5000,max:9999.99,rate:0.10},{min:10000,rate:0.20}], perTransactionCap:3000 }, periodCap:10000, rulesComplete:true }
+      'band_1': { rewardRule: { kind:'percent', rate:0.05, minSpend:5000, perTransactionCap:1000 }, periodCap:2000, rulesComplete:true },
+      'band_2': { rewardRule: { kind:'tiered_percent', tiers:[{min:5000,max:9999.99,rate:0.10},{min:10000,rate:0.20}], perTransactionCap:2000 }, periodCap:4000, rulesComplete:true },
+      'band_3': { rewardRule: { kind:'tiered_percent', tiers:[{min:5000,max:9999.99,rate:0.10},{min:10000,rate:0.20}], perTransactionCap:3000 }, periodCap:8000, rulesComplete:true },
+      'band_4': { rewardRule: { kind:'tiered_percent', tiers:[{min:5000,max:9999.99,rate:0.10},{min:10000,rate:0.20}], perTransactionCap:3000 }, periodCap:10000, rulesComplete:true }
     },
         rewardRule: { kind:'tiered_percent', tiers:[{min:5000,max:9999.99,rate:0.10},{min:10000,rate:0.20}], perTransactionCap:3000 },
         verifiedAt: '2026-10-01T12:00:00+03:00',
@@ -91,10 +91,10 @@ export const initialCampaigns = [
       }
     ],
     segmentRules: {
-      '1 milyon TL altı': { rewardRule: { kind:'percent', rate:0.05, minSpend:5000, perTransactionCap:1000 }, periodCap:2000, rulesComplete:true },
-      '1–4 milyon TL': { rewardRule: { kind:'tiered_percent', tiers:[{min:5000,max:9999.99,rate:0.10},{min:10000,rate:0.20}], perTransactionCap:2000 }, periodCap:4000, rulesComplete:true },
-      '4–8 milyon TL': { rewardRule: { kind:'tiered_percent', tiers:[{min:5000,max:9999.99,rate:0.10},{min:10000,rate:0.20}], perTransactionCap:3000 }, periodCap:8000, rulesComplete:true },
-      '8 milyon TL+': { rewardRule: { kind:'tiered_percent', tiers:[{min:5000,max:9999.99,rate:0.10},{min:10000,rate:0.20}], perTransactionCap:3000 }, periodCap:10000, rulesComplete:true }
+      'band_1': { rewardRule: { kind:'percent', rate:0.05, minSpend:5000, perTransactionCap:1000 }, periodCap:2000, rulesComplete:true },
+      'band_2': { rewardRule: { kind:'tiered_percent', tiers:[{min:5000,max:9999.99,rate:0.10},{min:10000,rate:0.20}], perTransactionCap:2000 }, periodCap:4000, rulesComplete:true },
+      'band_3': { rewardRule: { kind:'tiered_percent', tiers:[{min:5000,max:9999.99,rate:0.10},{min:10000,rate:0.20}], perTransactionCap:3000 }, periodCap:8000, rulesComplete:true },
+      'band_4': { rewardRule: { kind:'tiered_percent', tiers:[{min:5000,max:9999.99,rate:0.10},{min:10000,rate:0.20}], perTransactionCap:3000 }, periodCap:10000, rulesComplete:true }
     },
     categories: ['restoran'], merchantScope: { kind: 'all' },
     startDate: '2026-10-01', endDate: '2026-12-31', status: 'active', resetPolicy: 'monthly', periodCap: 8000,
@@ -138,12 +138,12 @@ export const initialCampaigns = [
   {
     id: 'official-ykb-crystal-restoran-2026-09', coreBenefit: true, bank: 'Yapı Kredi', title: 'Crystal — Anlaşmalı Otel/Restoran %20', demo: false,
     // Segment = varlık seviyesi (kart başına aylık 3.000 / 5.000 / 7.500 / 10.000 TL). Kart tipi (Crystal / Metal Crystal) ayrı boyuttur.
-    cardProductIds: ['ykb-crystal'], eligibility: { segmentLabels: ['1 milyon TL altı','1–6 milyon TL','6–10 milyon TL','10 milyon TL+'] },
+    cardProductIds: ['ykb-crystal'], eligibility: { segmentLabels: ['band_1','band_2','band_3','band_4'] },
     segmentRules: {
-      '1 milyon TL altı': { rewardRule:{kind:'percent',rate:0.20,minSpend:0,perTransactionCap:1500}, periodCap:3000, rulesComplete:true },
-      '1–6 milyon TL': { rewardRule:{kind:'percent',rate:0.20,minSpend:0,perTransactionCap:2500}, periodCap:5000, rulesComplete:true },
-      '6–10 milyon TL': { rewardRule:{kind:'percent',rate:0.20,minSpend:0,perTransactionCap:3000}, periodCap:7500, rulesComplete:true },
-      '10 milyon TL+': { rewardRule:{kind:'percent',rate:0.20,minSpend:0,perTransactionCap:4000}, periodCap:10000, rulesComplete:true }
+      'band_1': { rewardRule:{kind:'percent',rate:0.20,minSpend:0,perTransactionCap:1500}, periodCap:3000, rulesComplete:true },
+      'band_2': { rewardRule:{kind:'percent',rate:0.20,minSpend:0,perTransactionCap:2500}, periodCap:5000, rulesComplete:true },
+      'band_3': { rewardRule:{kind:'percent',rate:0.20,minSpend:0,perTransactionCap:3000}, periodCap:7500, rulesComplete:true },
+      'band_4': { rewardRule:{kind:'percent',rate:0.20,minSpend:0,perTransactionCap:4000}, periodCap:10000, rulesComplete:true }
     },
     // Ayrı kural: Metal Crystal ve Crystal'ı BİRLİKTE taşıyan müşteri iki kart toplamında aylık en fazla 15.000 TL.
     // Bu, Metal Crystal için genel bir segment tavanı DEĞİLDİR; kart başına asset seviyesi tavanları ayrıca geçerlidir.

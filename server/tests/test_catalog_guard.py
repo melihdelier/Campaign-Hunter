@@ -345,6 +345,9 @@ class WorkflowFailClosedTests(unittest.TestCase):
         self.assertLess(wf.index('  test:\n'), wf.index('  build:\n'))
         self.assertIn('TZ: UTC', wf); self.assertIn('TZ: Europe/Istanbul', wf)
         self.assertIn('working-directory: web', wf); self.assertIn('run: npm test', wf)
+        self.assertIn('node e2e/ui-smoke.mjs', wf)
+        self.assertIn('node e2e/account-smoke.mjs', wf)
+        self.assertIn('postgresql', wf)
         runner = (Path(__file__).resolve().parents[2] / 'web' / 'run-tests.mjs').read_text(encoding='utf-8')
         self.assertIn('UTC', runner); self.assertIn('Europe/Istanbul', runner)
 

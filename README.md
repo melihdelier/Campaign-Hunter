@@ -1,4 +1,4 @@
-# Banka Kampanya Avcısı v1.2.2-supabase
+# Banka Kampanya Avcısı v1.4.1
 
 Bu paket Supabase projesine bağlanmış istemci ayarlarıyla gelir. Ayrıntı: `SUPABASE_BAGLANTI.md`.
 
@@ -84,7 +84,7 @@ Bu sürüm demo/standalone veri akışından çıkarılmış **yerel canlı sür
 3. Tarayıcı otomatik olarak `http://127.0.0.1:8765` adresini açar.
 4. İlk canlı tarama arka planda başlar. Kaynak sayısına göre birkaç dakika sürebilir.
 5. Ana ekrandaki **Canlı katalog** satırında kampanya/kaynak/hata sayısını görebilirsiniz.
-6. İsterseniz `Ayarlar > Şimdi yenile` ile aynı taramayı elle başlatabilirsiniz.
+6. İsterseniz `Profil > Veriler ve Özet > Şimdi yenile` ile aynı taramayı elle başlatabilirsiniz.
 
 `web\standalone.html` artık uygulamanın kendisini çalıştırmaz. Canlı katalog ve özel kampanya servisi gerektiği için v1.0'da `start_app.bat` kullanılmalıdır.
 
@@ -139,7 +139,7 @@ Varsayılanlar:
 - Crystal — **1 milyon TL altı**
 - TEB Özel Infinite — **Ultra**
 
-`Ayarlar` ekranındaki dropdown'lar v1.0'da HTML içinde statik seçeneklerle de tanımlıdır; JavaScript yükleme sorunu olsa bile boş görünmez. THY statüsü ile QNB segmenti, Wings programı, Maximiles Black bandı, Crystal varlık bandı/kart tipi ve TEB Infinite paket seviyesi buradan değiştirilebilir. Segment değişikliği kampanya uygunluğunu ve segment bazlı limitleri anında etkiler; yanlış kalan-limit kullanımı olmasın diye ilgili kampanyaların manuel kalan hakları yeniden doğrulama bekler.
+`Profil > Müşteri Profili` ekranındaki (v1.3 öncesi: Ayarlar) dropdown'lar v1.0'da HTML içinde statik seçeneklerle de tanımlıdır; JavaScript yükleme sorunu olsa bile boş görünmez. THY statüsü ile QNB segmenti, Wings programı, Maximiles Black bandı, Crystal varlık bandı/kart tipi ve TEB Infinite paket seviyesi buradan değiştirilebilir. Segment değişikliği kampanya uygunluğunu ve segment bazlı limitleri anında etkiler; yanlış kalan-limit kullanımı olmasın diye ilgili kampanyaların manuel kalan hakları yeniden doğrulama bekler.
 
 ## Kalan kampanya hakkı
 
@@ -285,3 +285,37 @@ Canlı internette kurulabilen PWA için HTTPS hosting gerekir. Ayrıntılar: `PW
 - **Crystal tavanları:** kart başına varlık seviyesi aylık 3.000 / 5.000 / 7.500 / 10.000 TL; "Metal Crystal" artık segment değil, kart tipi (Crystal / Metal Crystal / ikisi birden). Metal Crystal + Crystal birlikte taşıyan müşteri için ayrı `combinedCustomerCaps` kuralı: iki kart toplamında aylık en fazla 15.000 TL.
 - **Crystal tarih crawler'ı:** core kaynak sayfalarında "İndirimler 31.10.2026 tarihine kadar geçerlidir" gibi açık geçerlilik cümlesi doğrudan okunur ve sayfadaki ilgisiz tarih aralıklarına göre önceliklidir.
 - **Türkiye takvimi:** dönem anahtarları ve geçerlilik başlangıç/bitiş karşılaştırmaları `web/tr-time.js` ile Europe/Istanbul takvim günü (`YYYY-MM-DD`) üzerinden yapılır; cihazın/Node'un saat diliminden bağımsızdır. Crawler ve kalite kapısı da "bugün"ü Istanbul tarihine göre alır. `cd web && npm test` tüm JS paketlerini Europe/Istanbul, UTC, America/Los_Angeles ve Pacific/Kiritimati altında çalıştırır; CI'da testler (Python UTC + Istanbul, JS çoklu saat dilimi) tarama/yayından önce koşar.
+
+## v1.3.0 — Gezinme ve bilgi mimarisi (davranış değişikliği yok)
+
+- **Hangi Kart?** ana ekran ve varsayılan açılış sayfası; ana menü üç sekme: *Hangi Kart? · Kampanyalar · Profil* (mobilde alt menü).
+- **Özet** ana menüden kalktı → *Profil › Veriler ve Özet* (katalog durumu, sayaçlar, Şimdi yenile, yedek dışa/içe aktar, sıfırla — tümü korunuyor).
+- **Ekle** ana menüden kalktı → *Kampanyalar* ekranındaki **+** düğmesi aynı kampanya ekleme akışını açar.
+- **Profil** bölümleri: Bankalarım ve Kartlarım · Müşteri Profili (segment/statü seçicileri) · Tercihler · Veriler ve Özet · Hesap (giriş/senkron) · Uygulama Bilgisi.
+- **Uygulama Bilgisi:** sürüm, build kimliği/commit/zaman (CI yazar), katalog son tarama, kaynak, kampanya sayısı, kalite kapısı, sürüm notları. Sürüm artık yalnız burada.
+- Hash tabanlı gezinme (`#/hangi-kart`, `#/kampanyalar/ekle`, `#/profil/info` …); Android geri tuşu ve eski yer imleri çalışır.
+- **Service worker:** CI her dağıtımda `sw.js` önbellek adına build kimliğini ekler → tarayıcı yeni sürümü kurar, eski önbellekleri siler; açılışta güncelleme kontrolü.
+- Karar motoru, kampanya uygunluğu, katalog, kalite kapısı, Supabase şeması ve giriş davranışı **değişmedi**.
+- Testler: `test-navigation.mjs` (yapı/gezinme/Info/SW kapsamı) ve tarayıcı smoke testi `e2e/ui-smoke.mjs` (Playwright; CI'da çalışır).
+- Denetim raporu: `docs/AUDIT_v1.2.2_MULTIUSER.md`; canlı veritabanı için salt-okunur RLS denetimi: `supabase/audit/rls_audit.sql`.
+
+## v1.4.0 — Hesaba bağlı kişisel profil, onboarding ve RLS
+
+- **Hesap zorunlu (bulut yapılandırılmışsa):** açılışta oturum yoksa *Giriş* ekranı. E-posta + şifre (mevcut Supabase Auth); oturum cihazda saklanır ve otomatik yenilenir. *Şifremi unuttum* ve Hesap ekranından şifre değiştirme.
+- **İlk girişte profil kurulumu:** Bankalar → Kartlar (yalnız seçili bankalarınki) → Segment/statüler (yalnız sahip olunan kartlara uygulananlar, “Bilmiyorum” seçeneğiyle) → Tamamla. Profil tamamlanınca bir daha sorulmaz; *Profil › Bankalarım ve Kartlarım* ve *Müşteri Profili* ekranlarından düzenlenir.
+- **Hangi Kart? yalnız kullanıcının kartlarını** karşılaştırır. Kartlar ve segmentler profilden gelir (kod içine gömülü kişisel portföy yok). Seçilmemiş segmentte segmente özel kampanya kesin sayılmaz, normal kazanım oranı uydurulmaz.
+- **Genel profil boyutları:** yeni segment/statü/tier = `profile_dimensions` + `profile_dimension_options` satırı (+ `web/profile-catalog.js` kopyası); mimari değişmez.
+- **Veritabanı:** `supabase/migrations/008_user_profiles.sql` (tek transaction, ek ve tekrar çalıştırılabilir): `profiles`, `user_banks`, `user_profile_attributes`, `user_preferences`, mevcut `user_cards`; ana veri `profile_dimensions/_options/_cards`. Tüm kullanıcı tablolarında RLS (`(select auth.uid()) = user_id`; select/insert/update/delete ayrı politikalar), anon erişimi yok, banka silinince kartları ve bankaya bağlı segmentleri silinir, kart eklemek için bankası seçili olmalı. `007_explicit_data_api_grants.sql` artık ayrı dosya.
+- **Çıkış** sunucuda oturumu sonlandırır (`/auth/v1/logout?scope=local`); yerel veriler kullanıcı kimliğine göre ayrılır; bu cihazdaki eski hesapsız veri yalnız ilk giriş yapan hesaba **ön-doldurma** olarak sunulur (onaysız kaydedilmez).
+- **Geri dönüş:** sunucuda 008 uygulanmamışsa uygulama otomatik olarak eski tek-kullanıcı moduna düşer (onboarding açmaz).
+- **Testler:** gerçek PostgreSQL üzerinde RLS/tetikleyici/izolasyon testleri (`server/tests/test_supabase_rls.py`, CI'da zorunlu), profil modeli/deposu/kapı/çıkış birim testleri (`web/test-profile.mjs`), tarayıcı akış testi (`web/e2e/account-smoke.mjs`).
+
+## v1.4.1 — Uygunluk mimarisi sertleştirmesi (davranış değişikliği yok)
+
+- **Ortak uygunluk değerlendiricisi** `web/eligibility.js`: *Kampanyalar* ve *Hangi Kart?* aynı fonksiyonu kullanır (ayrı filtre mantığı kaldırıldı). Kural modeli: `all` / `any` / `not` / `payWith` / `owns` / `attr` (boyut + seçenek kodu) — Türkçe etiketlere bağlı değil; üç değerli mantık (seçilmemiş segment = bilinmiyor, asla "uygun" değil).
+- **Profil öznitelikleri kanonik:** uygunluk öznitelikleri boyut/seçenek koduyla doğrudan okur; `card.segment` yalnız mevcut ödül/çekirdek ayrıcalık mantığı için geriye uyumluluk alanı. Kartlar artık kapsadıkları tüm boyutları `profileAttributes` olarak taşır.
+- **`eligibility_only` boyut bağlaması** (migration `009_eligibility_only_dimensions.sql`): yalnız kampanya uygunluğu için kullanılan profil özelliği; mevcut boyutlar değişmedi.
+- **Geriye uyumluluk:** `cardProductIds` + `eligibility.segmentLabels` + `segmentRules` kullanan mevcut kayıtlar uyumluluk adaptörüyle birebir aynı sonucu verir (616 kombinasyonluk eşdeğerlik testi). Tek bilinçli birleştirme: `cardProductIds` boş kampanya artık Kampanyalar ekranında da uygun görünmez (Hangi Kart? zaten reddediyordu).
+- Katalog doğruluk yolu değişmedi: crawler → katalog JSON → kalite kapısı → snapshot → istemci. İlişkisel `campaigns` tabloları kullanılmıyor.
+- Ana veri hâlâ yalnız **ilk altı kart ürününü** içeriyor; ürün kataloğu genişletmesi ayrı adım.
+- Belgeler: `docs/ELIGIBILITY_SCHEMA_v1.md` (v1.5 için öneri) + `docs/eligibility-examples.v1.json` (testle doğrulanan örnekler), `docs/ACCEPTANCE_v1.4_REAL_SUPABASE.md` (canlı Supabase kabul listesi — henüz çalıştırılmadı).

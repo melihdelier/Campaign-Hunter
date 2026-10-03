@@ -1,4 +1,5 @@
 import { trDay, trMonthKey, toTrDay } from './tr-time.js';
+import { evaluateCampaignForCard, campaignTargetsCard, buildEligibilityContext } from './eligibility.js';
 
 export function money(value) {
   if (value === null || value === undefined || Number.isNaN(Number(value))) return 'Bilinmiyor';
@@ -391,13 +392,14 @@ function blocker(code, message, kind = 'hard', meta = {}) {
   return { code, message, kind, ...meta };
 }
 
-export function inspectCampaign({ campaign, card, merchant, category, amount, locationScope = 'domestic', paymentChannel = 'physical', now = new Date() }) {
+export function inspectCampaign({ campaign, card, merchant, category, amount, locationScope = 'domestic', paymentChannel = 'physical', now = new Date(), eligibilityContext = null }) {
   const blockers = [];
   const warnings = [];
 
   if (!campaignIsActive(campaign, now)) blockers.push(blocker('inactive', 'Kampanya şu anda aktif değil.', 'hard'));
-  if (!campaign.cardProductIds?.includes(card.cardProductId)) blockers.push(blocker('card_product', 'Bu kart tipi kampanyaya dahil değil.', 'hard'));
-  if (!segmentMatches(campaign, card)) blockers.push(blocker('segment', `Kart segmenti uygun değil (${card.segment || 'segment bilinmiyor'}).`, 'hard'));
+  // Kart/banka/profil uygunluğu: ortak değerlendirici (Kampanyalar ekranı da aynısını kullanır).
+  const eligibility = evaluateCampaignForCard(campaign, card, eligibilityContext || buildEligibilityContext({ cards: [card] }));
+  for (const r of eligibility.reasons) blockers.push(blocker(r.code, r.message, 'hard', r.dim ? { dim: r.dim } : {}));
   if (!categoryMatches(campaign, category)) blockers.push(blocker('category', 'Harcama kategorisi kampanya kapsamına uymuyor.', 'hard'));
 
   const m = merchantMatch(campaign, merchant);
@@ -582,9 +584,9 @@ export function applyCombinedCustomerCaps(campaign, card) {
   return out;
 }
 
-export function evaluateCampaign({ campaign, state, card, merchant, category, amount, locationScope = 'domestic', paymentChannel = 'physical', now = new Date(), staleAfterDays = 3 }) {
+export function evaluateCampaign({ campaign, state, card, merchant, category, amount, locationScope = 'domestic', paymentChannel = 'physical', now = new Date(), staleAfterDays = 3, eligibilityContext = null }) {
   campaign = applyCombinedCustomerCaps(resolveSegmentCampaign(campaign, card, now), card);
-  const inspection = inspectCampaign({ campaign, card, merchant, category, amount, locationScope, paymentChannel, now });
+  const inspection = inspectCampaign({ campaign, card, merchant, category, amount, locationScope, paymentChannel, now, eligibilityContext });
   const normalizedState = ensureReset(campaign, state, now);
 
   // Dönemi bitmiş sürekli ayrıcalık sessizce kaybolmamalı: başka engel yoksa bilgi amaçlı gösterilir.
@@ -660,10 +662,11 @@ export function evaluateCampaign({ campaign, state, card, merchant, category, am
   };
 }
 
-export function recommend({ cards, campaigns, states, merchant, category, amount, locationScope = 'domestic', paymentChannel = 'physical', now = new Date(), staleAfterDays = 3 }) {
+export function recommend({ cards, campaigns, states, merchant, category, amount, locationScope = 'domestic', paymentChannel = 'physical', now = new Date(), staleAfterDays = 3, eligibilityContext = null }) {
+  const ctx = eligibilityContext || buildEligibilityContext({ cards });
   return cards.filter(c => c.active !== false).map(card => {
     const allInspections = campaigns
-      .filter(campaign => campaign.cardProductIds?.includes(card.cardProductId))
+      .filter(campaign => campaignTargetsCard(campaign, card, ctx))
       .map(campaign => evaluateCampaign({
         campaign,
         state: states[campaign.id],
@@ -674,7 +677,8 @@ export function recommend({ cards, campaigns, states, merchant, category, amount
         locationScope,
         paymentChannel,
         now,
-        staleAfterDays
+        staleAfterDays,
+        eligibilityContext: ctx
       }));
 
     const evaluations = allInspections

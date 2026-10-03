@@ -27,12 +27,12 @@ const byId = id => initialCampaigns.find(c => c.id === id);
   assert.equal(below.potential, true); // Q4'te 4.500 TL artık eşik altı
 
   // Maximiles Q4 1 milyon TL altı: resmi metin net (5.000 TL+ %5, işlem 1.000 / aylık 2.000) → rulesComplete:true, uyarı yok.
-  const under1m = resolveSegmentCampaign(maxi, { ...card('is-maximiles-black'), segment: '1 milyon TL altı' }, OCT1);
+  const under1m = resolveSegmentCampaign(maxi, { ...card('is-maximiles-black'), segment: 'band_1' }, OCT1);
   assert.equal(under1m.rulesComplete, true);
   assert.equal(under1m.rewardRule.rate, 0.05); assert.equal(under1m.rewardRule.minSpend, 5000);
   assert.equal(under1m.rewardRule.perTransactionCap, 1000); assert.equal(under1m.periodCap, 2000);
   assert.ok(!under1m.decisionWarnings.some(w => /net okunamadı/.test(w)));
-  const u = evaluateCampaign({ campaign: maxi, state: undefined, card: { ...card('is-maximiles-black'), segment: '1 milyon TL altı' }, merchant: 'R', category: 'restoran', amount: 30000, now: OCT1 });
+  const u = evaluateCampaign({ campaign: maxi, state: undefined, card: { ...card('is-maximiles-black'), segment: 'band_1' }, merchant: 'R', category: 'restoran', amount: 30000, now: OCT1 });
   assert.equal(u.eligible, true); assert.equal(u.theoreticalReward, 1000);
 
   // Crystal: iki onaylı resmi kaynak çelişiyor (YKB 30.09 / Crystal 31.10). Crystal-özel kaynak yok sayılmaz.
@@ -385,13 +385,13 @@ const byId = id => initialCampaigns.find(c => c.id === id);
 {
   const crystal = byId('official-ykb-crystal-restoran-2026-09');
   const OCT3 = new Date('2026-10-03T12:00:00+03:00');
-  assert.deepEqual(Object.keys(crystal.segmentRules), ['1 milyon TL altı', '1–6 milyon TL', '6–10 milyon TL', '10 milyon TL+']);
+  assert.deepEqual(Object.keys(crystal.segmentRules), ['band_1', 'band_2', 'band_3', 'band_4']);
   assert.deepEqual(Object.values(crystal.segmentRules).map(r => r.periodCap), [3000, 5000, 7500, 10000]);
   assert.ok(!crystal.eligibility.segmentLabels.includes('Metal Crystal'));
   assert.equal(crystal.combinedCustomerCaps[0].periodCap, 15000);
   assert.deepEqual(crystal.combinedCustomerCaps[0].requiresCardTypes, ['crystal', 'metal_crystal']);
   const base = card('ykb-crystal');
-  const top = { ...base, segment: '10 milyon TL+' };
+  const top = { ...base, segment: 'band_4' };
   // Yalnız Metal Crystal: 15.000 genel tavan olarak UYGULANMAZ; varlık seviyesi tavanı (10.000) geçerli.
   const metalOnly = applyCombinedCustomerCaps(resolveSegmentCampaign(crystal, { ...top, cardType: 'metal_crystal' }, OCT3), { ...top, cardType: 'metal_crystal' });
   assert.equal(metalOnly.periodCap, 10000); assert.equal(metalOnly.activeCombinedCaps, undefined);

@@ -1,0 +1,561 @@
+{
+  "schemaVersion": 1,
+  "note": "v1 schema (frozen for v1.5 dual-write). Representative real campaigns expressed in the v1 eligibility schema; only stable codes. 'eligibilityRule' is evaluated by web/eligibility.js today. 'rewardVariants' selection semantics are defined and tested (selectRewardVariant / resolveCampaignReward) but NOT yet wired into the Hangi Kart? amount. 'expect' = eligibility per probe; 'rewardExpect' = which variant is ACTUAL (rate) and which are only CONDITIONAL.",
+  "examples": [
+    {
+      "id": "official-teb-infinite-restoran-ultra",
+      "title": "TEB Infinite — Otel/Restoran İndirimi (core benefit)",
+      "source": "https://www.teb.com.tr/kart-dunyasi-otel-restoran-indirimi/",
+      "eligibilitySchemaVersion": 1,
+      "eligibilityRule": {
+        "all": [
+          {
+            "payWith": {
+              "cards": [
+                "teb-infinite"
+              ]
+            }
+          },
+          {
+            "attr": {
+              "dim": "teb_tier",
+              "in": [
+                "standard",
+                "plus",
+                "premium",
+                "ultra"
+              ]
+            }
+          }
+        ]
+      },
+      "rewardVariants": [
+        {
+          "when": {
+            "attr": {
+              "dim": "teb_tier",
+              "in": [
+                "standard"
+              ]
+            }
+          },
+          "rewardRule": {
+            "kind": "percent",
+            "rate": 0.05,
+            "minSpend": 1500,
+            "perTransactionCap": 75
+          },
+          "periodCap": 250
+        },
+        {
+          "when": {
+            "attr": {
+              "dim": "teb_tier",
+              "in": [
+                "plus"
+              ]
+            }
+          },
+          "rewardRule": {
+            "kind": "percent",
+            "rate": 0.1,
+            "minSpend": 1500,
+            "perTransactionCap": 500
+          },
+          "periodCap": 2500
+        },
+        {
+          "when": {
+            "attr": {
+              "dim": "teb_tier",
+              "in": [
+                "premium"
+              ]
+            }
+          },
+          "rewardRule": {
+            "kind": "percent",
+            "rate": 0.15,
+            "minSpend": 1500,
+            "perTransactionCap": 1000
+          },
+          "periodCap": 4000
+        },
+        {
+          "when": {
+            "attr": {
+              "dim": "teb_tier",
+              "in": [
+                "ultra"
+              ]
+            }
+          },
+          "rewardRule": {
+            "kind": "percent",
+            "rate": 0.2,
+            "minSpend": 1500,
+            "perTransactionCap": 2000
+          },
+          "periodCap": 8000
+        }
+      ],
+      "expect": [
+        {
+          "payWith": "teb-infinite",
+          "attributes": {
+            "teb_tier": "ultra"
+          },
+          "eligible": true
+        },
+        {
+          "payWith": "teb-infinite",
+          "attributes": {},
+          "eligible": null
+        },
+        {
+          "payWith": "qnb-ms-private",
+          "attributes": {
+            "teb_tier": "ultra"
+          },
+          "eligible": false
+        }
+      ],
+      "rewardExpect": [
+        {
+          "payWith": "teb-infinite",
+          "attributes": {
+            "teb_tier": "premium"
+          },
+          "status": "actual",
+          "actualRate": 0.15,
+          "conditionalRates": []
+        },
+        {
+          "payWith": "teb-infinite",
+          "attributes": {},
+          "status": "eligibility_unknown",
+          "actualRate": null,
+          "conditionalRates": [
+            0.05,
+            0.1,
+            0.15,
+            0.2
+          ]
+        }
+      ]
+    },
+    {
+      "id": "official-is-restoran-2026q3",
+      "title": "Maximiles Black — Restoranlarda %20'ye Varan İndirim (Q4 2026)",
+      "source": "https://www.maximiles.com.tr/kampanyalar/maximiles-black-ile-restoranlarda-20-indirim-ayricaligi",
+      "eligibilitySchemaVersion": 1,
+      "eligibilityRule": {
+        "all": [
+          {
+            "payWith": {
+              "cards": [
+                "is-maximiles-black"
+              ]
+            }
+          },
+          {
+            "attr": {
+              "dim": "maximiles_band",
+              "in": [
+                "band_1",
+                "band_2",
+                "band_3",
+                "band_4"
+              ]
+            }
+          }
+        ]
+      },
+      "rewardVariants": [
+        {
+          "when": {
+            "attr": {
+              "dim": "maximiles_band",
+              "in": [
+                "band_1"
+              ]
+            }
+          },
+          "rewardRule": {
+            "kind": "percent",
+            "rate": 0.05,
+            "minSpend": 5000,
+            "perTransactionCap": 1000
+          },
+          "periodCap": 2000
+        },
+        {
+          "when": {
+            "attr": {
+              "dim": "maximiles_band",
+              "in": [
+                "band_2"
+              ]
+            }
+          },
+          "rewardRule": {
+            "kind": "tiered_percent",
+            "tiers": [
+              {
+                "min": 5000,
+                "max": 9999.99,
+                "rate": 0.1
+              },
+              {
+                "min": 10000,
+                "rate": 0.2
+              }
+            ],
+            "perTransactionCap": 2000
+          },
+          "periodCap": 4000
+        },
+        {
+          "when": {
+            "attr": {
+              "dim": "maximiles_band",
+              "in": [
+                "band_3"
+              ]
+            }
+          },
+          "rewardRule": {
+            "kind": "tiered_percent",
+            "tiers": [
+              {
+                "min": 5000,
+                "max": 9999.99,
+                "rate": 0.1
+              },
+              {
+                "min": 10000,
+                "rate": 0.2
+              }
+            ],
+            "perTransactionCap": 3000
+          },
+          "periodCap": 8000
+        },
+        {
+          "when": {
+            "attr": {
+              "dim": "maximiles_band",
+              "in": [
+                "band_4"
+              ]
+            }
+          },
+          "rewardRule": {
+            "kind": "tiered_percent",
+            "tiers": [
+              {
+                "min": 5000,
+                "max": 9999.99,
+                "rate": 0.1
+              },
+              {
+                "min": 10000,
+                "rate": 0.2
+              }
+            ],
+            "perTransactionCap": 3000
+          },
+          "periodCap": 10000
+        }
+      ],
+      "expect": [
+        {
+          "payWith": "is-maximiles-black",
+          "attributes": {
+            "maximiles_band": "band_3"
+          },
+          "eligible": true
+        },
+        {
+          "payWith": "akbank-wings-black",
+          "attributes": {
+            "maximiles_band": "band_3"
+          },
+          "eligible": false
+        }
+      ]
+    },
+    {
+      "id": "qnb-terminal-kadikoy-restoran",
+      "title": "QNB Terminal Kadıköy restoranlarında %10'dan başlayan indirim (First Plus %15, Private %20)",
+      "source": "https://www.qnbcard.com.tr/kampanyalar/qnb-terminal-kadikoy-restoran-harcamalarinda-10dan-baslayan-indirim-42833",
+      "comment": "Card eligibility and reward tier are SEPARATE decisions. Eligibility: any QNB credit card. Tier: qnb_segment private -> 20%, first_plus -> 15%, otherwise (always) -> 10%. Unknown segment -> the ACTUAL reward is the guaranteed 10%; 20%/15% are only CONDITIONAL. Today the crawler override encodes only the Private case via segmentLabels ['Private'], so a non-Private QNB cardholder sees nothing.",
+      "eligibilitySchemaVersion": 1,
+      "eligibilityRule": {
+        "payWith": {
+          "banks": [
+            "qnb"
+          ]
+        }
+      },
+      "rewardVariants": [
+        {
+          "when": {
+            "attr": {
+              "dim": "qnb_segment",
+              "in": [
+                "private"
+              ]
+            }
+          },
+          "rewardRule": {
+            "kind": "percent",
+            "rate": 0.2,
+            "minSpend": 0,
+            "perTransactionCap": 1000
+          },
+          "periodCap": 2000
+        },
+        {
+          "when": {
+            "attr": {
+              "dim": "qnb_segment",
+              "in": [
+                "first_plus"
+              ]
+            }
+          },
+          "rewardRule": {
+            "kind": "percent",
+            "rate": 0.15,
+            "minSpend": 0,
+            "perTransactionCap": 1000
+          },
+          "periodCap": 2000
+        },
+        {
+          "when": {
+            "always": true
+          },
+          "rewardRule": {
+            "kind": "percent",
+            "rate": 0.1,
+            "minSpend": 0,
+            "perTransactionCap": 1000
+          },
+          "periodCap": 2000
+        }
+      ],
+      "expect": [
+        {
+          "payWith": "qnb-ms-private",
+          "attributes": {
+            "qnb_segment": "private"
+          },
+          "eligible": true
+        },
+        {
+          "payWith": "qnb-ms-private",
+          "attributes": {
+            "qnb_segment": "first_plus"
+          },
+          "eligible": true
+        },
+        {
+          "payWith": "qnb-ms-private",
+          "attributes": {
+            "qnb_segment": "first"
+          },
+          "eligible": true
+        },
+        {
+          "payWith": "qnb-ms-private",
+          "attributes": {},
+          "eligible": true
+        },
+        {
+          "payWith": "teb-infinite",
+          "attributes": {
+            "qnb_segment": "private"
+          },
+          "eligible": false
+        }
+      ],
+      "rewardExpect": [
+        {
+          "payWith": "qnb-ms-private",
+          "attributes": {
+            "qnb_segment": "private"
+          },
+          "status": "actual",
+          "actualRate": 0.2,
+          "conditionalRates": []
+        },
+        {
+          "payWith": "qnb-ms-private",
+          "attributes": {
+            "qnb_segment": "first_plus"
+          },
+          "status": "actual",
+          "actualRate": 0.15,
+          "conditionalRates": []
+        },
+        {
+          "payWith": "qnb-ms-private",
+          "attributes": {
+            "qnb_segment": "first"
+          },
+          "status": "actual",
+          "actualRate": 0.1,
+          "conditionalRates": []
+        },
+        {
+          "payWith": "qnb-ms-private",
+          "attributes": {
+            "qnb_segment": "other"
+          },
+          "status": "actual",
+          "actualRate": 0.1,
+          "conditionalRates": []
+        },
+        {
+          "payWith": "qnb-ms-private",
+          "attributes": {},
+          "status": "actual",
+          "actualRate": 0.1,
+          "conditionalRates": [
+            0.2,
+            0.15
+          ]
+        },
+        {
+          "payWith": "teb-infinite",
+          "attributes": {
+            "qnb_segment": "private"
+          },
+          "status": "ineligible",
+          "actualRate": null,
+          "conditionalRates": []
+        }
+      ]
+    },
+    {
+      "id": "qnb-sarj-parapuan",
+      "title": "QNB Bireysel Kredi Kartı ile şarjda 50 TL ParaPuan — Miles&Smiles QNB ve QNB Fix hariç",
+      "source": "https://www.qnbcard.com.tr/kampanyalar/sarj",
+      "comment": "Exclusion (NOT). 'qnb-fix' is not in the master data yet (only six products exist); it will be added to the exclusion list when the product catalog is expanded. Today the crawler drops this campaign entirely; with the schema it can be stored and correctly NOT shown to a Miles&Smiles QNB holder.",
+      "eligibilitySchemaVersion": 1,
+      "eligibilityRule": {
+        "all": [
+          {
+            "payWith": {
+              "banks": [
+                "qnb"
+              ]
+            }
+          },
+          {
+            "not": {
+              "payWith": {
+                "cards": [
+                  "qnb-ms-private"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "expect": [
+        {
+          "payWith": "qnb-ms-private",
+          "attributes": {
+            "qnb_segment": "private"
+          },
+          "eligible": false
+        }
+      ]
+    },
+    {
+      "id": "teb-ultra-only-example",
+      "title": "TEB Ultra müşterilerine özel kampanya (yapı örneği: kart VE segment)",
+      "comment": "Structural example from the product brief: a campaign open only to TEB Ultra customers paying with TEB Özel Infinite.",
+      "eligibilitySchemaVersion": 1,
+      "eligibilityRule": {
+        "all": [
+          {
+            "payWith": {
+              "cards": [
+                "teb-infinite"
+              ]
+            }
+          },
+          {
+            "attr": {
+              "dim": "teb_tier",
+              "in": [
+                "ultra"
+              ]
+            }
+          }
+        ]
+      },
+      "expect": [
+        {
+          "payWith": "teb-infinite",
+          "attributes": {
+            "teb_tier": "ultra"
+          },
+          "eligible": true
+        },
+        {
+          "payWith": "teb-infinite",
+          "attributes": {
+            "teb_tier": "premium"
+          },
+          "eligible": false
+        },
+        {
+          "payWith": "teb-infinite",
+          "attributes": {},
+          "eligible": null
+        }
+      ]
+    },
+    {
+      "id": "axess-general-wings-included",
+      "title": "Axess genel kampanyası — Wings kartlar dahil (VEYA)",
+      "comment": "OR over card products: either Wings product qualifies. Axess products themselves will be added when the catalog expands.",
+      "eligibilitySchemaVersion": 1,
+      "eligibilityRule": {
+        "any": [
+          {
+            "payWith": {
+              "cards": [
+                "akbank-wings-elite"
+              ]
+            }
+          },
+          {
+            "payWith": {
+              "cards": [
+                "akbank-wings-black"
+              ]
+            }
+          }
+        ]
+      },
+      "expect": [
+        {
+          "payWith": "akbank-wings-black",
+          "attributes": {},
+          "eligible": true
+        },
+        {
+          "payWith": "is-maximiles-black",
+          "attributes": {},
+          "eligible": false
+        }
+      ]
+    }
+  ]
+}

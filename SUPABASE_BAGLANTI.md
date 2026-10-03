@@ -10,7 +10,7 @@ Publishable key istemci uygulamalarında kullanılmak üzere tasarlanmıştır. 
 ## İlk test
 
 1. `Banka Kampanya Avcisi - BASLAT.bat` ile uygulamayı açın.
-2. **Ayarlar > Bulut ve cihazlar arası senkron** bölümüne gidin.
+2. **Profil > Hesap** bölümüne gidin (v1.3 öncesi: Ayarlar > Bulut ve cihazlar arası senkron).
 3. Üstte `Supabase bağlantısı doğrulandı` mesajını görmelisiniz.
 4. Kendi e-posta adresiniz ve en az 8 karakterlik bir şifreyle **Hesap oluştur** seçin.
 5. Supabase e-posta doğrulaması açıksa gelen e-postadaki bağlantıyı onaylayın, sonra uygulamada **Giriş yap** seçin.

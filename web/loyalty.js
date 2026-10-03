@@ -1,3 +1,6 @@
+import { BUNDLED_PROFILE_CATALOG } from './profile-catalog.js';
+import { optionDisplayLabel } from './profile-criteria.js';
+
 function norm(v) {
   return String(v ?? '').trim().toLocaleLowerCase('tr-TR')
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
@@ -25,11 +28,14 @@ export const QNB_SEGMENTS = [
   { value: 'private', label: 'QNB Private', cardLabel: 'Private', statementMilesCap: 40000 },
 ];
 
+// v1.4.3: varlık bantlarının kimliği nötr koddur (band_N, boyuta özel). İnsan-okur etiket ve TL sınırları
+// tarihli/kaynaklı ölçüt kayıtlarından gelir (profile-catalog.js PROFILE_OPTION_CRITERIA); burada eşik YOKTUR.
+// cardLabel = karar motoru anahtarı (kart segmenti / segmentRules anahtarı) = seçenek kodu.
+const bandLabel = (dim, code) => optionDisplayLabel(BUNDLED_PROFILE_CATALOG, dim, code);
+const band = (dim, value, extra = {}) => ({ value, get label() { return bandLabel(dim, value); }, cardLabel: value, ...extra });
+
 export const CRYSTAL_BANDS = [
-  { value: 'under_1m', label: '1 milyon TL altı', cardLabel: '1 milyon TL altı' },
-  { value: '1m_6m', label: '1–6 milyon TL', cardLabel: '1–6 milyon TL' },
-  { value: '6m_10m', label: '6–10 milyon TL', cardLabel: '6–10 milyon TL' },
-  { value: '10m_plus', label: '10 milyon TL+', cardLabel: '10 milyon TL+' },
+  band('crystal_band', 'band_1'), band('crystal_band', 'band_2'), band('crystal_band', 'band_3'), band('crystal_band', 'band_4'),
 ];
 
 export const CRYSTAL_CARD_TYPES = [
@@ -51,11 +57,12 @@ export const WINGS_TIERS = [
   { value: 'black_plus', label: 'Black Plus / 2 milyon TL+' },
 ];
 
+// Normal MaxiMil kazanım oranı banda bağlıdır (ödül kuralı band kimliğine bağlanır, eşik metnine değil).
 export const MAXIMILES_BANDS = [
-  { value: 'under_1m', label: '1 milyon TL altı', rate: 0.005, txCap: 250 },
-  { value: '1m_4m', label: '1–4 milyon TL', rate: 0.0125, txCap: 625 },
-  { value: '4m_8m', label: '4–8 milyon TL', rate: 0.015, txCap: 750 },
-  { value: '8m_plus', label: '8 milyon TL+', rate: 0.0175, txCap: 875 },
+  band('maximiles_band', 'band_1', { rate: 0.005, txCap: 250 }),
+  band('maximiles_band', 'band_2', { rate: 0.0125, txCap: 625 }),
+  band('maximiles_band', 'band_3', { rate: 0.015, txCap: 750 }),
+  band('maximiles_band', 'band_4', { rate: 0.0175, txCap: 875 }),
 ];
 
 function isThyMerchant(merchant) {
@@ -101,7 +108,7 @@ function wingsEarning({ amount, category, locationScope, tier }) {
 }
 
 function maximilesEarning({ amount, band, category }) {
-  const rec = MAXIMILES_BANDS.find(x => x.value === band) || MAXIMILES_BANDS.find(x => x.value === '4m_8m');
+  const rec = MAXIMILES_BANDS.find(x => x.value === band) || MAXIMILES_BANDS.find(x => x.value === 'band_3');
   const cat = norm(category);
   const highRateCategories = new Set(['market','akaryakit','giyim','seyahat','otel','restoran','elektronik','mobilya','egitim','e-ticaret']);
   const high = highRateCategories.has(cat);
@@ -122,7 +129,7 @@ function maximilesEarning({ amount, band, category }) {
 }
 
 function qnbEarning({ amount, merchant, category, thyStatus, qnbSegment }) {
-  const segment = QNB_SEGMENTS.find(x => x.value === qnbSegment) || QNB_SEGMENTS.find(x => x.value === 'private');
+  const segment = qnbSegment === null ? null : (QNB_SEGMENTS.find(x => x.value === qnbSegment) || QNB_SEGMENTS.find(x => x.value === 'private'));
   if (isThyMerchant(merchant) && ['seyahat', 'all'].includes(norm(category))) {
     const miles = Math.floor(Number(amount) / 6);
     return {
@@ -131,7 +138,7 @@ function qnbEarning({ amount, merchant, category, thyStatus, qnbSegment }) {
       amount: miles,
       title: 'Miles&Smiles Mil',
       detail: 'THY resmi kanallarında 6 TL = 1 Mil · statüden ve QNB segmentinden bağımsız özel oran',
-      note: `${segment.label} için ekstre dönemi toplam Mil tavanı ${formatNumber(segment.statementMilesCap, 0)} Mil; bu hesap önceki dönem kazanımlarını bilmez.`,
+      note: segment ? `${segment.label} için ekstre dönemi toplam Mil tavanı ${formatNumber(segment.statementMilesCap, 0)} Mil; bu hesap önceki dönem kazanımlarını bilmez.` : 'QNB segmenti seçilmediği için ekstre dönemi Mil tavanı gösterilemiyor.',
       sourceStatus: 'official_verified',
     };
   }
@@ -182,11 +189,27 @@ function crystalEarning() {
   };
 }
 
+// v1.4: kişisel profilde seçilmemiş segment/statü `null` gelir → oran UYDURULMAZ, "seçilmedi" döner.
+// (undefined yalnız eski tek-kullanıcı modunda görülür ve eski varsayılanlarla geriye uyumludur.)
+function selectionMissing(title, unit, what) {
+  return { known: false, unit, amount: null, title, detail: `${what} seçilmedi; normal kazanım hesaplanamadı. Profil › Müşteri Profili'nden seçebilirsin.`, sourceStatus: 'profile_incomplete' };
+}
+
 export function calculateLoyalty({ card, amount, merchant, category, locationScope = 'domestic', settings = {} }) {
   const product = card.cardProductId;
-  if (product === 'qnb-ms-private') return qnbEarning({ amount, merchant, category, thyStatus: settings.thyStatus || 'classic', qnbSegment: settings.qnbSegment || 'private' });
-  if (product === 'akbank-wings-elite' || product === 'akbank-wings-black') return wingsEarning({ amount, category, locationScope, tier: settings.wingsTier || 'black_plus' });
-  if (product === 'is-maximiles-black') return maximilesEarning({ amount, category, band: settings.maximilesBand || '4m_8m' });
+  if (product === 'qnb-ms-private') {
+    const thyMerchant = isThyMerchant(merchant) && ['seyahat', 'all'].includes(norm(category));
+    if (!thyMerchant && (settings.qnbSegment === null || settings.thyStatus === null)) return selectionMissing('Miles&Smiles Mil', 'thy_miles', settings.qnbSegment === null ? 'QNB müşteri segmenti' : 'THY Miles&Smiles statüsü');
+    return qnbEarning({ amount, merchant, category, thyStatus: settings.thyStatus || 'classic', qnbSegment: settings.qnbSegment === null ? null : (settings.qnbSegment || 'private') });
+  }
+  if (product === 'akbank-wings-elite' || product === 'akbank-wings-black') {
+    if (settings.wingsTier === null) return selectionMissing('Standart Wings Mil Puan', 'wings_mil_puan', 'Wings varlık programı');
+    return wingsEarning({ amount, category, locationScope, tier: settings.wingsTier || 'black_plus' });
+  }
+  if (product === 'is-maximiles-black') {
+    if (settings.maximilesBand === null) return selectionMissing('Standart MaxiMil', 'maximil', 'Maximiles Black varlık bandı');
+    return maximilesEarning({ amount, category, band: settings.maximilesBand || 'band_3' });
+  }
   if (product === 'teb-infinite') return tebEarning();
   if (product === 'ykb-crystal') return crystalEarning();
   return { known: false, unit: 'unknown', amount: null, title: 'Standart kazanım', detail: 'Kazanım kuralı tanımlı değil.', sourceStatus: 'unknown' };

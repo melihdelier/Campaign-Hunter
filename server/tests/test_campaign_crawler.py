@@ -66,14 +66,14 @@ class CampaignCrawlerTests(unittest.TestCase):
     def test_crystal_override(self):
         b=wrap('Otel Restoran İndirimleri', '''Crystal ile %20 indirim. Da Mario Etiler\nDa Mario İstinye Park\nGünaydın Restoran\nYapı Kredi POS ile geçerlidir.''')
         c=generic_parse(src('crystal_special','Yapı Kredi',['ykb-crystal']),'https://www.yapikredi.com.tr/bireysel-bankacilik/kartlar/otel-restoran-indirimleri',b,date(2026,9,23)); c=special_overrides(c)
-        self.assertEqual(c['rewardRule']['rate'],.20); self.assertTrue(any('Da Mario' in x for x in c['merchantScope'].get('values',[]))); self.assertEqual(c['segmentRules']['10 milyon TL+']['periodCap'],10000); self.assertNotIn('Metal Crystal', c['segmentRules']); self.assertEqual(c['combinedCustomerCaps'][0]['periodCap'],15000); self.assertEqual(c['combinedCustomerCaps'][0]['requiresCardTypes'],['crystal','metal_crystal'])
+        self.assertEqual(c['rewardRule']['rate'],.20); self.assertTrue(any('Da Mario' in x for x in c['merchantScope'].get('values',[]))); self.assertEqual(c['segmentRules']['band_4']['periodCap'],10000); self.assertNotIn('Metal Crystal', c['segmentRules']); self.assertEqual(c['combinedCustomerCaps'][0]['periodCap'],15000); self.assertEqual(c['combinedCustomerCaps'][0]['requiresCardTypes'],['crystal','metal_crystal'])
 
 
     def test_maximiles_black_hotel_user_band_override(self):
         b=wrap('Maximiles Black ile Otel Ödemelerinize %5 İndirim', 'Kampanya Maximiles Black müşterilerinin varlık birikimine göre farklılaşır. 1.000.000 TL, 4.000.000 TL, 8.000.000 TL bantları bulunur. Otel ödemelerinde indirim vardır.')
         c=generic_parse(src('maximiles','İş Bankası',['is-maximiles-black']),'https://www.maximiles.com.tr/kampanyalar/maximiles-black-ile-otel-odemelerinize-5-indirim',b,date(2026,9,23)); c=special_overrides(c)
-        self.assertTrue(c['rulesComplete']); self.assertEqual(c['eligibility']['segmentLabels'],['1 milyon TL altı','1–4 milyon TL','4–8 milyon TL','8 milyon TL+'])
-        self.assertEqual(c['rewardRule']['minSpend'],25000); self.assertEqual(c['rewardRule']['perTransactionCap'],1500); self.assertEqual(c['periodCap'],3000); self.assertEqual(c['segmentRules']['1 milyon TL altı']['periodCap'],1500)
+        self.assertTrue(c['rulesComplete']); self.assertEqual(c['eligibility']['segmentLabels'],['band_1','band_2','band_3','band_4'])
+        self.assertEqual(c['rewardRule']['minSpend'],25000); self.assertEqual(c['rewardRule']['perTransactionCap'],1500); self.assertEqual(c['periodCap'],3000); self.assertEqual(c['segmentRules']['band_1']['periodCap'],1500)
 
     def test_maximiles_black_parking_user_band_override(self):
         b=wrap('Maximiles Black ile Otopark Ödemelerinizde %50 İndirim', 'Kampanya Maximiles Black müşterilerinin varlık birikimine göre farklılaşır. 1.000.000 TL, 4.000.000 TL, 8.000.000 TL bantları bulunur. Otopark ödemelerinde indirim vardır.')
@@ -202,13 +202,13 @@ class CampaignCrawlerTests(unittest.TestCase):
         self.assertEqual(c['segmentRules']['Ultra']['periodCap'], 8000)
         self.assertEqual(c['merchantScope']['kind'], 'all')
 
-    def test_maximiles_restaurant_4_8m_override(self):
+    def test_maximiles_restaurant_band_3_override(self):
         b=wrap("Maximiles Black ile Restoranlarda %20'ye Varan İndirim Ayrıcalığı", "Maximiles Black bireysel kartlarla restoran harcamalarında varlık bantlarına göre indirim. 4.000 TL ve üzeri restoran harcamaları kampanyaya dahildir. 1.000.000 TL, 4.000.000 TL ve 8.000.000 TL varlık bantları uygulanır.")
         c=generic_parse(src('maximiles','İş Bankası',['is-maximiles-black']),'https://www.maximiles.com.tr/kampanyalar/maximiles-black-ile-restoranlarda-20-indirim-ayricaligi',b,date(2026,9,24)); c=special_overrides(c)
         self.assertIsNotNone(c); self.assertTrue(c['rulesComplete'])
-        rule=c['segmentRules']['4–8 milyon TL']['rewardRule']
+        rule=c['segmentRules']['band_3']['rewardRule']
         self.assertEqual(rule['kind'],'tiered_percent'); self.assertEqual(rule['tiers'][0]['rate'],.10)
-        self.assertEqual(c['segmentRules']['4–8 milyon TL']['periodCap'],8000)
+        self.assertEqual(c['segmentRules']['band_3']['periodCap'],8000)
         self.assertEqual(c['merchantScope']['kind'], 'all')
 
     def test_wings_program_restaurant_override(self):
@@ -224,7 +224,7 @@ class CampaignCrawlerTests(unittest.TestCase):
         source=src('maximiles','İş Bankası',['is-maximiles-black'])
         c=known_core_fallback(source,'https://www.maximiles.com.tr/kampanyalar/maximiles-black-ile-restoranlarda-20-indirim-ayricaligi',tiny,date(2026,9,24)); c=special_overrides(c)
         self.assertIsNotNone(c); self.assertTrue(c['rulesComplete'])
-        self.assertEqual(c['segmentRules']['4–8 milyon TL']['periodCap'],8000)
+        self.assertEqual(c['segmentRules']['band_3']['periodCap'],8000)
         self.assertEqual(c['merchantScope']['kind'],'all')
 
     def test_refresh_uses_staging_until_all_sources_finish(self):

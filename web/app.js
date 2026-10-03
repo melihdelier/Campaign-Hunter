@@ -2,11 +2,27 @@ import { initialCards, initialCampaigns, initialStates } from './bootstrap-data.
 import { recommend, money, ensureReset, freshness, ruleMinSpend, resolveMerchantInput, resolveSegmentCampaign } from './engine.js';
 import { calculateLoyalty, campaignRewardLabel, THY_STATUSES, QNB_SEGMENTS, WINGS_TIERS, MAXIMILES_BANDS, CRYSTAL_BANDS, CRYSTAL_CARD_TYPES, TEB_TIERS, formatNumber } from './loyalty.js';
 import { CAMPAIGN_BROWSER_CATEGORIES, groupCampaignsByCard, merchantScopeInfo, paymentScopeInfo } from './campaign-browser.js';
-import { cloudConfigured, cloudConfigSummary, sessionInfo, signUp, signIn, signOut, testCloudConnection, fetchCloudCatalog, fetchCloudUserState, saveCloudUserState, triggerCloudRefresh } from './cloud-sync.js';
+import { cloudConfigured, cloudConfigSummary, sessionInfo, signUp, signIn, signOut, testCloudConnection, fetchCloudCatalog, fetchCloudUserState, saveCloudUserState, triggerCloudRefresh, requestPasswordReset, updatePassword, consumeAuthRedirect, getAccessToken } from './cloud-sync.js';
+import { BUNDLED_PROFILE_CATALOG, PROFILE_CATALOG_SCHEMA } from './profile-catalog.js';
+import { effectiveAttributes, optionDisplayLabel, attributeConfirmationStatus, currentCriteria, REQUIRES_RECONFIRMATION } from './profile-criteria.js';
+import { normalizeLegacySettings } from './legacy-option-aliases.js';
+import { emptyProfile, normalizeProfile, applicableDimensions, toggleBank, toggleCard, setAttribute, confirmAttribute, confirmPendingAttributes, isProfileComplete, canCompleteOnboarding, profileToEngineCards, profileToLegacySettings, legacyToProfilePrefill, diffProfiles, banksAffectedByAttributeChange, nextOnboardingStep, previousOnboardingStep } from './profile-model.js';
+import { createProfileStore, SchemaMissingError, readProfileCache, writeProfileCache } from './profile-store.js';
+import { buildEligibilityContext, attributesFromLegacySettings, campaignTargetsCard } from './eligibility.js';
 import { mergeCatalogWithCore as mergeCatalogWithCoreRules, reconcileCampaignStates as reconcileStatesRules, invalidateSegmentDependentStates as invalidateSegmentRules, applyCloudRow, isLocalServerMode } from './catalog-state.js';
 import { APP_VERSION } from './version.js';
+import { resolveRoute, guardRoute, DEFAULT_ROUTE } from './router.js';
+import { buildInfoRows, RELEASE_NOTES } from './app-info.js';
+import { BUILD_INFO } from './build-info.js';
 
 const STORAGE_KEY = 'banka-kampanya-avcisi-v10';
+// v1.4: kişisel yerel veri (kalan limit/katılım/özel kampanya önbelleği) kullanıcı kimliğine göre ayrılır.
+let storageKey = STORAGE_KEY;
+const LEGACY_CLAIM_KEY = 'bka-legacy-device-data-claimed-by';
+const userStorageKey = uid => `${STORAGE_KEY}:u:${uid}`;
+// Hesap durumu. mode: 'legacy' (bulut yapılandırılmamış veya profil şeması yok) | 'profile' (hesaba bağlı profil)
+// Bulut yapılandırılmışsa ilk çizimden itibaren hesap modundayız: oturum doğrulanana kadar hiçbir kişisel veri gösterilmez.
+let account = { mode: cloudConfigured() ? 'profile' : 'legacy', state: cloudConfigured() ? 'loading' : 'ready', userId: null, email: null, profile: null, serverProfile: null, catalog: BUNDLED_PROFILE_CATALOG, master: null, store: null, notice: null };
 const REFRESH_API = '';
 // /api/* uçları yalnız yerel geliştirme sunucusunda (localhost) vardır; GitHub Pages'te çağrılmaz.
 const LOCAL_API = isLocalServerMode();
@@ -80,7 +96,7 @@ function seed() {
     cards: clone(initialCards),
     campaigns: clone(initialCampaigns),
     states: clone(initialStates),
-    settings: { staleAfterDays: 3, thyStatus: 'classic', qnbSegment: 'private', wingsTier: 'black_plus', maximilesBand: '4m_8m', crystalBand: 'under_1m', crystalCardType: 'crystal', tebTier: 'ultra' },
+    settings: { staleAfterDays: 3, thyStatus: 'classic', qnbSegment: 'private', wingsTier: 'black_plus', maximilesBand: 'band_3', crystalBand: 'band_1', crystalCardType: 'crystal', tebTier: 'ultra' },
     meta: { version: 13, createdAt: new Date().toISOString(), catalogGeneratedAt: null }
   };
 }
@@ -89,15 +105,16 @@ let data = load();
 ensureCoreBenefitsInData();
 syncCardSegmentsFromSettings();
 
-function load() {
+function load(key = storageKey) {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(key);
     const loaded = raw ? JSON.parse(raw) : seed();
-    loaded.settings = {
+    // v1.4.3: cihazdaki eski eşik kodlu bant seçimleri nötr kodlara çevrilir (tek dönüşüm noktası: legacy-option-aliases.js).
+    loaded.settings = normalizeLegacySettings({
       staleAfterDays: 3, thyStatus: 'classic', qnbSegment: 'private', wingsTier: 'black_plus',
-      maximilesBand: '4m_8m', crystalBand: 'under_1m', crystalCardType: 'crystal', tebTier: 'ultra',
+      maximilesBand: 'band_3', crystalBand: 'band_1', crystalCardType: 'crystal', tebTier: 'ultra',
       ...(loaded.settings || {})
-    };
+    });
     const previousVersion = Number(loaded.meta?.version || 0);
     loaded.meta = { version: 13, ...(loaded.meta || {}), version: 13 };
     if (previousVersion < 13) {
@@ -121,13 +138,26 @@ function selectedLabel(items, value, fallbackValue) {
 }
 
 function syncCardSegmentsFromSettings() {
+  // v1.4: hesaba bağlı profil varsa kartlar ve segmentler YALNIZ profilden gelir (profil her zaman kazanır).
+  if (account.mode === 'profile' && account.profile) {
+    data.cards = profileToEngineCards(account.profile, account.catalog);
+    Object.assign(data.settings, profileToLegacySettings(account.profile, account.catalog));
+    if (Number.isFinite(Number(account.profile.preferences?.staleAfterDays))) data.settings.staleAfterDays = Number(account.profile.preferences.staleAfterDays);
+    data.profileMode = true;
+    return;
+  }
+  if (account.mode === 'profile') { data.cards = []; return; }
   for (const card of data.cards || []) {
     if (card.cardProductId === 'qnb-ms-private') card.segment = selectedLabel(QNB_SEGMENTS, data.settings.qnbSegment, 'private');
     else if (card.cardProductId === 'akbank-wings-elite' || card.cardProductId === 'akbank-wings-black') card.segment = selectedLabel(WINGS_TIERS, data.settings.wingsTier, 'black_plus').replace(/^Standart\s*\//, 'Classic /');
-    else if (card.cardProductId === 'is-maximiles-black') card.segment = selectedLabel(MAXIMILES_BANDS, data.settings.maximilesBand, '4m_8m');
+    else if (card.cardProductId === 'is-maximiles-black') {
+      card.segment = selectedLabel(MAXIMILES_BANDS, data.settings.maximilesBand, 'band_3');
+      card.segmentLabel = optionDisplayLabel(BUNDLED_PROFILE_CATALOG, 'maximiles_band', card.segment);
+    }
     else if (card.cardProductId === 'ykb-crystal') {
       // Segment her zaman varlık seviyesidir; kart tipi ayrı tutulur (Metal Crystal artık bir segment değil).
-      card.segment = selectedLabel(CRYSTAL_BANDS, data.settings.crystalBand, 'under_1m');
+      card.segment = selectedLabel(CRYSTAL_BANDS, data.settings.crystalBand, 'band_1');
+      card.segmentLabel = optionDisplayLabel(BUNDLED_PROFILE_CATALOG, 'crystal_band', card.segment);
       card.cardType = ['crystal', 'metal_crystal', 'crystal_and_metal'].includes(data.settings.crystalCardType) ? data.settings.crystalCardType : 'crystal';
     }
     else if (card.cardProductId === 'teb-infinite') card.segment = selectedLabel(TEB_TIERS, data.settings.tebTier, 'ultra');
@@ -138,10 +168,15 @@ function invalidateSegmentDependentStates(bank) {
   data.states = invalidateSegmentRules({ campaigns: data.campaigns || [], states: data.states || {}, bank, now: new Date() });
 }
 
-function save() { data.meta = {...(data.meta||{}), updatedAt:new Date().toISOString()}; localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); }
+function save() {
+  // Hesap modunda oturum yokken hiçbir şey yazılmaz (cihazdaki eski veri ve diğer kullanıcıların önbelleği korunur).
+  if (account.mode === 'profile' && !account.userId) return;
+  data.meta = {...(data.meta||{}), updatedAt:new Date().toISOString()};
+  try { localStorage.setItem(storageKey, JSON.stringify(data)); } catch {}
+}
 
 function cardForCampaign(campaign) {
-  return (data.cards || []).find(card => campaign.cardProductIds?.includes(card.cardProductId)) || null;
+  return (data.cards || []).find(card => campaignTargetsCard(campaign, card)) || null;
 }
 
 function effectiveCampaign(campaign) {
@@ -210,7 +245,7 @@ function renderDashboard() {
       health.innerHTML = `<strong>Canlı katalog:</strong> ${esc(m.campaign_count ?? 0)} canlı kampanya + ${esc(coreCount)} sürekli kart ayrıcalığı · ${esc(covered)}/${esc(reports.length || '?')} resmi kaynakta uygun kayıt · ${esc(errors)} kaynak hatası · son tarama ${esc(formatRefreshTime(generated))} · sürüm ${esc(runtimeAppVersion)}.${sourceAlert.length ? `<br><strong>Kaynak kontrolü:</strong> ${sourceAlert.map(esc).join(' · ')}` : ''}${m.guard && m.guard.verdict && m.guard.verdict !== 'ok' ? `<br><strong>Kalite kapısı:</strong> ${m.guard.verdict === 'repaired' ? `onarıldı — ${esc((m.guard.repairedSources || []).join(', '))} için son başarılı kayıtlar korunuyor` : 'yeni tarama reddedildi; son başarılı katalog gösteriliyor'}` : ''}`;
       health.classList.toggle('warn', errors > 0 || sourceAlert.length > 0 || (m.guard && m.guard.verdict && m.guard.verdict !== 'ok'));
     } else {
-      health.innerHTML = '<strong>Başlangıç kataloğu:</strong> Canlı resmi tarama arka planda başlatılıyor. Ayarlar → Şimdi yenile ile durumu kontrol edebilirsin.';
+      health.innerHTML = '<strong>Başlangıç kataloğu:</strong> Canlı resmi tarama arka planda başlatılıyor. Profil → Veriler ve Özet → Şimdi yenile ile durumu kontrol edebilirsin.';
     }
   }
 
@@ -218,7 +253,7 @@ function renderDashboard() {
     <article class="card-item">
       <div class="bank">${esc(card.bank)}</div>
       <h3>${esc(card.name)}</h3>
-      <div class="muted">${esc(card.segment)}</div>
+      <div class="muted">${esc(card.segmentLabel || card.segment)}</div>
     </article>`).join('');
 }
 
@@ -324,7 +359,7 @@ function renderCampaignDetail(groups) {
   const categoryHtml = `<div class="detail-section ${categoryAudit.low ? 'scope-warning' : ''}"><div class="detail-label">Kategori / sektör</div><div class="detail-value">${esc(categoryAudit.categories)}</div><div class="muted detail-sub">Kaynak: ${esc(categoryAudit.source)}</div>${categoryAudit.low ? '<div class="detail-warning">Kategori güvenle doğrulanamadı; spesifik kategori listelerinde gösterilmez.</div>' : ''}</div>`;
   panel.innerHTML = `<div class="campaign-detail-inner">
     <div class="campaign-detail-head">
-      <div><div class="bank">${esc(card.bank)} — ${esc(card.name)}</div><h3>${esc(c.title)}</h3><div class="muted">${esc(card.segment)} · ${esc(c.startDate || '?')} → ${esc(end)}</div></div>
+      <div><div class="bank">${esc(card.bank)} — ${esc(card.name)}</div><h3>${esc(c.title)}</h3><div class="muted">${esc(card.segmentLabel || card.segment)} · ${esc(c.startDate || '?')} → ${esc(end)}</div></div>
       <div class="badges">${campaignTypeBadge(c)}${browserEnrollmentBadge(c,s)}</div>
     </div>
     <div class="detail-section"><div class="detail-label">Kazanç / koşul</div><div class="detail-value">${esc(rewardRuleSummary(c) || 'Koşul otomatik hesaplanamadı')}</div></div>
@@ -372,7 +407,8 @@ function renderCampaigns() {
     cards: data.cards,
     category: campaignBrowserState.category,
     resolveCampaign: (raw, card, now) => resolveSegmentCampaign(raw, card, now),
-    now: new Date()
+    now: new Date(),
+    eligibilityContext: eligibilityContext()
   }).map(group => ({
     ...group,
     campaigns: group.campaigns.filter(c => (!campaignBrowserState.onlyComplete || c.rulesComplete !== false) && browseSearchMatch(c, campaignBrowserState.search))
@@ -389,7 +425,7 @@ function renderCampaigns() {
   const container = $('#campaignList');
   container.innerHTML = groups.map(group => `<section class="campaign-card-group">
     <div class="campaign-card-group-head">
-      <div><div class="bank">${esc(group.card.bank)}</div><h3>${esc(group.card.name)}</h3><div class="muted">${esc(group.card.segment)}</div></div>
+      <div><div class="bank">${esc(group.card.bank)}</div><h3>${esc(group.card.name)}</h3><div class="muted">${esc(group.card.segmentLabel || group.card.segment)}</div></div>
       <span class="campaign-count-pill">${esc(group.campaigns.length)} kampanya</span>
     </div>
     <div class="campaign-browser-items">${group.campaigns.length ? group.campaigns.map(c => campaignCompactHtml(group.card,c)).join('') : '<div class="empty-card-campaigns">Bu kategoride aktif kampanya bulunamadı.</div>'}</div>
@@ -483,8 +519,18 @@ function ruleDetailBits(campaign) {
     min > 0 ? `Alt limit ${money(min)}` : 'Alt limit yok',
     txCap != null ? `İşlem tavanı ${money(txCap)}` : null,
     campaign.periodCap != null ? `Dönem tavanı ${campaignRewardLabel(campaign, campaign.periodCap)}` : null,
-    campaign.eligibility?.segmentLabels?.length ? `Segment ${campaign.eligibility.segmentLabels.join(', ')}` : null
+    campaign.eligibility?.segmentLabels?.length ? `Segment ${segmentLabelsDisplay(campaign).join(', ')}` : null
   ].filter(Boolean).join(' · ');
+}
+
+// Kampanyanın segment anahtarları (ör. nötr bant kodu) → kullanıcıya güncel ölçüt etiketi.
+function segmentLabelsDisplay(campaign) {
+  const catalog = account.catalog || BUNDLED_PROFILE_CATALOG;
+  const dims = (catalog.dimensions || []).filter(d => d.engineBinding === 'card_segment' && (d.cardCodes || []).some(c => (campaign.cardProductIds || []).includes(c)));
+  return (campaign.eligibility?.segmentLabels || []).map(l => {
+    const d = dims.find(x => x.options.some(o => o.code === l && (o.engineLabel || o.label) === l));
+    return d ? optionDisplayLabel(catalog, d.code, l) : l;
+  });
 }
 
 function potentialCardHtml(r, p) {
@@ -575,7 +621,8 @@ function renderRecommendation() {
       locationScope,
       paymentChannel,
       now: new Date(),
-      staleAfterDays: data.settings.staleAfterDays
+      staleAfterDays: data.settings.staleAfterDays,
+      eligibilityContext: eligibilityContext()
     });
 
     setLastQueryDebug({
@@ -657,13 +704,53 @@ function renderRecommendation() {
   });
 }
 
+// v1.3: hash tabanlı gezinme. Ana sekmeler: Hangi Kart? (varsayılan) · Kampanyalar · Profil.
+// Alt sayfalar (Kampanya ekle, Profil bölümleri) kendi sekmesini aktif tutar; Android geri tuşu çalışır.
+function showRoute() {
+  const route = guardRoute(resolveRoute(location.hash), account);
+  if (route.redirected && location.hash !== route.hash) { history.replaceState(null, '', route.hash); }
+  document.body.classList.toggle('gate-mode', Boolean(route.gate));
+  $$('.view').forEach(v => v.classList.toggle('active', v.id === route.view));
+  $$('.nav-btn').forEach(a => {
+    const on = a.dataset.tab === route.tab;
+    a.classList.toggle('active', on);
+    if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
+  });
+  const title = $('#pageTitle'); if (title) title.textContent = route.title;
+  document.title = `${route.title} · Kampanya Avcısı`;
+  if (route.view === 'profileInfo') renderInfo();
+  if (route.view === 'onboardingView') renderOnboarding();
+  if (route.view === 'accountStatusView') renderAccountStatus();
+  if (route.view === 'profileCards') openCardsEditor();
+  if (route.view === 'profileSegments') openAttributesEditor();
+  if (route.view === 'profileAccount') renderAccountSummary();
+  window.scrollTo(0, 0);
+}
+
 function wireNav() {
-  $$('.nav-btn').forEach(btn => btn.addEventListener('click', () => {
-    $$('.nav-btn').forEach(x => x.classList.remove('active'));
-    btn.classList.add('active');
-    $$('.view').forEach(v => v.classList.remove('active'));
-    $(`#${btn.dataset.view}`).classList.add('active');
-  }));
+  window.addEventListener('hashchange', showRoute);
+  if (!location.hash) history.replaceState(null, '', DEFAULT_ROUTE);
+  showRoute();
+}
+
+function renderInfo() {
+  const rowsEl = $('#infoRows');
+  if (rowsEl) {
+    const rows = buildInfoRows({
+      version: runtimeAppVersion,
+      build: BUILD_INFO,
+      meta: data?.meta || {},
+      campaignCount: (data?.campaigns || []).filter(c => !c.coreBenefit && c.sourceKind !== 'user_private').length,
+      coreCount: (data?.campaigns || []).filter(c => c.coreBenefit).length,
+    });
+    rowsEl.innerHTML = rows.map(([k, v]) => `<div class="info-row"><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join('');
+  }
+  const v = $('#runtimeVersion'); if (v) v.textContent = runtimeAppVersion;
+  const notes = $('#releaseNotes');
+  if (notes && !notes.dataset.rendered) {
+    notes.innerHTML = RELEASE_NOTES.map(r => `<div class="release"><div class="release-head"><strong>${esc(r.version)}</strong><span class="muted">${esc(r.date)}</span></div><ul>${r.items.map(i => `<li>${esc(i)}</li>`).join('')}</ul></div>`).join('');
+    notes.dataset.rendered = '1';
+  }
 }
 
 function wireDataTools() {
@@ -691,7 +778,11 @@ function wireDataTools() {
   $('#staleDays').value = data.settings.staleAfterDays;
   $('#staleDays').addEventListener('change', () => {
     const n = Number($('#staleDays').value);
-    if (Number.isFinite(n) && n >= 0) { data.settings.staleAfterDays = n; save(); renderAll(); }
+    if (Number.isFinite(n) && n >= 0) {
+      data.settings.staleAfterDays = n;
+      if (account.mode === 'profile' && account.profile) savePreferences({ staleAfterDays: n });
+      save(); renderAll();
+    }
   });
   function bindProfileSelect(id, items, settingKey, fallback, bankToInvalidate = null) {
     const el = $(id); if (!el) return;
@@ -708,8 +799,8 @@ function wireDataTools() {
   bindProfileSelect('#thyStatus', THY_STATUSES, 'thyStatus', 'classic');
   bindProfileSelect('#qnbSegment', QNB_SEGMENTS, 'qnbSegment', 'private', 'QNB');
   bindProfileSelect('#wingsTier', WINGS_TIERS, 'wingsTier', 'black_plus', 'Akbank');
-  bindProfileSelect('#maximilesBand', MAXIMILES_BANDS, 'maximilesBand', '4m_8m', 'İş Bankası');
-  bindProfileSelect('#crystalBand', CRYSTAL_BANDS, 'crystalBand', 'under_1m', 'Yapı Kredi');
+  bindProfileSelect('#maximilesBand', MAXIMILES_BANDS, 'maximilesBand', 'band_3', 'İş Bankası');
+  bindProfileSelect('#crystalBand', CRYSTAL_BANDS, 'crystalBand', 'band_1', 'Yapı Kredi');
   bindProfileSelect('#crystalCardType', CRYSTAL_CARD_TYPES, 'crystalCardType', 'crystal', 'Yapı Kredi');
   bindProfileSelect('#tebTier', TEB_TIERS, 'tebTier', 'ultra', 'TEB');
 }
@@ -793,17 +884,37 @@ function wireRefreshTools() {
   loadRefreshStatus();
 }
 
+// Ortak uygunluk bağlamı: profil modunda öznitelikler DOĞRUDAN profilden (boyut kodu → seçenek kodu);
+// eski modda eski ayarlardan türetilir. card.segment uygunluğun kanonik kaynağı değildir.
+function eligibilityContext() {
+  if (account.mode === 'profile' && account.profile) {
+    // GERÇEK bağlam: yalnız bugün geçerli (onayı güncel) seçimler; yeniden onay bekleyen seçim "bilinmiyor" sayılır.
+    return buildEligibilityContext({ cards: data.cards || [], banks: account.profile.banks, attributes: effectiveAttributes(account.profile, account.catalog), catalog: account.catalog });
+  }
+  return buildEligibilityContext({ cards: data.cards || [], attributes: attributesFromLegacySettings(data.settings || {}, BUNDLED_PROFILE_CATALOG), catalog: BUNDLED_PROFILE_CATALOG });
+}
+
+function renderPrivateCardOptions() {
+  const sel = $('#privateCard');
+  if (!sel || account.mode !== 'profile') return;
+  const cards = data.cards || [];
+  const html = cards.map(c => `<option value="${esc(c.cardProductId)}|${esc(c.bank)}">${esc(c.bank)} ${esc(c.name)}</option>`).join('');
+  if (sel.dataset.rendered !== html) { sel.innerHTML = html || '<option value="">Önce Profil › Bankalarım ve Kartlarım’dan kart ekle</option>'; sel.dataset.rendered = html; }
+}
+
 function renderAll() {
   syncCardSegmentsFromSettings();
+  renderPrivateCardOptions();
   syncResets();
   renderDashboard();
   renderCampaigns();
+  renderInfo();
   $('#staleDays').value = data.settings.staleAfterDays;
   if ($('#thyStatus')) $('#thyStatus').value = data.settings.thyStatus || 'classic';
   if ($('#qnbSegment')) $('#qnbSegment').value = data.settings.qnbSegment || 'private';
   if ($('#wingsTier')) $('#wingsTier').value = data.settings.wingsTier || 'black_plus';
-  if ($('#maximilesBand')) $('#maximilesBand').value = data.settings.maximilesBand || '4m_8m';
-  if ($('#crystalBand')) $('#crystalBand').value = data.settings.crystalBand || 'under_1m';
+  if ($('#maximilesBand')) $('#maximilesBand').value = data.settings.maximilesBand || 'band_3';
+  if ($('#crystalBand')) $('#crystalBand').value = data.settings.crystalBand || 'band_1';
   if ($('#crystalCardType')) $('#crystalCardType').value = data.settings.crystalCardType || 'crystal';
   if ($('#tebTier')) $('#tebTier').value = data.settings.tebTier || 'ultra';
 }
@@ -986,6 +1097,7 @@ function applyCloudPayload(row) {
   if (!row) return false;
   // Bulut satırındaki boş/eksik özel kampanya listesi cihazdaki özel kampanyaları silmez; birleşim yapılır.
   data = applyCloudRow(data, row, seed().settings);
+  data.settings = normalizeLegacySettings(data.settings);
   ensureCoreBenefitsInData(); syncCardSegmentsFromSettings(); save(); renderAll();
   return true;
 }
@@ -1026,10 +1138,436 @@ function wireCloudTools() {
   const creds=()=>({email:$('#cloudEmail')?.value.trim(),password:$('#cloudPassword')?.value||''});
   signInBtn?.addEventListener('click',async()=>{try{const c=creds(); if(!c.email||!c.password) throw new Error('E-posta ve şifre gerekli.'); await signIn(c.email,c.password); await refreshCloudUi('Giriş yapıldı.');}catch(e){await refreshCloudUi(`Giriş başarısız: ${e.message}`);}});
   signUpBtn?.addEventListener('click',async()=>{try{const c=creds(); if(!c.email||c.password.length<8) throw new Error('Geçerli e-posta ve en az 8 karakter şifre gerekli.'); const out=await signUp(c.email,c.password); await refreshCloudUi(out.access_token?'Hesap oluşturuldu ve giriş yapıldı.':'Hesap oluşturuldu. Supabase e-posta doğrulaması açıksa gelen kutundan doğrula.');}catch(e){await refreshCloudUi(`Kayıt başarısız: ${e.message}`);}});
-  signOutBtn?.addEventListener('click',async()=>{signOut(); await refreshCloudUi('Bulut oturumu kapatıldı.');});
+  signOutBtn?.addEventListener('click',async()=>{ if (account.mode === 'profile') { await doSignOut(); return; } await signOut(); await refreshCloudUi('Bulut oturumu kapatıldı.');});
   upload?.addEventListener('click',async()=>{try{upload.disabled=true; const out=await saveCloudUserState(personalCloudPayload()); await refreshCloudUi(`Bu cihazın kişisel ayarları buluta gönderildi · ${formatRefreshTime(out.updated_at)}`);}catch(e){await refreshCloudUi(`Buluta gönderilemedi: ${e.message}`);}});
   download?.addEventListener('click',async()=>{try{download.disabled=true; const row=await fetchCloudUserState(); if(!row){await refreshCloudUi('Bulutta kayıtlı kişisel veri bulunamadı.');return;} if(!confirm('Buluttaki profil/limit/katılım verisini bu cihaza uygulamak istiyor musun?')){await refreshCloudUi('Buluttan alma iptal edildi.');return;} applyCloudPayload(row); await refreshCloudUi(`Bulut verisi bu cihaza alındı · ${formatRefreshTime(row.updated_at)}`);}catch(e){await refreshCloudUi(`Buluttan alınamadı: ${e.message}`);}});
   refreshCloudUi();
+}
+
+// =====================================================================================
+// v1.4 — Hesap, kişisel profil ve onboarding
+// Akış: oturum yok → Giriş · oturum var + profil tamam değil → Profilini oluştur · profil tamam → Hangi Kart?
+// Profil Supabase'de kullanıcıya bağlıdır (RLS: auth.uid() = user_id). Cihazda yalnız hızlı açılış önbelleği tutulur.
+// =====================================================================================
+function profileStore() {
+  const c = cloudConfigSummary();
+  const cfg = window.BKA_CONFIG || {};
+  return createProfileStore({ baseUrl: c.url, apiKey: cfg.supabaseAnonKey, getAccessToken });
+}
+
+function setAccountState(state, extra = {}) {
+  account = { ...account, ...extra, state };
+  applyModeUi();
+  showRoute();
+}
+
+function applyModeUi() {
+  const profileMode = account.mode === 'profile';
+  const signedIn = profileMode && Boolean(account.userId);
+  const show = (sel, on) => { const el = $(sel); if (el) el.hidden = !on; };
+  show('#profileCardsEditor', profileMode && signedIn);
+  show('#profileCardsSaveBar', profileMode && signedIn);
+  show('#legacyCardsInfo', !profileMode);
+  show('#profileAttributesEditor', profileMode && signedIn);
+  show('#profileAttributesSaveBar', profileMode && signedIn);
+  show('#legacySegmentSelectors', !profileMode);
+  show('#accountSummaryCard', signedIn);
+  show('#legacyCloudAuth', !profileMode);
+}
+
+// Kullanıcıya özel yerel veri. Bu cihazdaki eski (hesapsız) veriyi yalnız İLK giriş yapan hesap devralır;
+// devralınan yalnız kalan limit/katılım/özel kampanya durumudur — kart portföyü ve segmentler profilden gelir.
+function activateUserData(uid) {
+  storageKey = userStorageKey(uid);
+  let hasUserData = false;
+  try { hasUserData = localStorage.getItem(storageKey) !== null; } catch {}
+  if (!hasUserData) {
+    let legacyRaw = null, claimedBy = null;
+    try { legacyRaw = localStorage.getItem(STORAGE_KEY); claimedBy = localStorage.getItem(LEGACY_CLAIM_KEY); } catch {}
+    if (legacyRaw && !claimedBy) {
+      try { localStorage.setItem(storageKey, legacyRaw); localStorage.setItem(LEGACY_CLAIM_KEY, uid); account.claimedLegacy = true; } catch {}
+    }
+  }
+  data = load(storageKey);
+  ensureCoreBenefitsInData();
+}
+
+async function initAccount() {
+  const redirect = consumeAuthRedirect(location.hash);
+  if (redirect) {
+    history.replaceState(null, '', redirect.type === 'recovery' ? '#/profil/hesap' : DEFAULT_ROUTE);
+    if (redirect.type === 'recovery') account.notice = 'Yeni şifreni bu ekrandan belirleyebilirsin.';
+  }
+  if (!cloudConfigured()) { account = { ...account, mode: 'legacy', state: 'ready' }; applyModeUi(); showRoute(); return; }
+  account = { ...account, mode: 'profile', state: 'loading' };
+  applyModeUi(); showRoute();
+  let info = { signedIn: false };
+  try { info = await sessionInfo(); } catch { info = { signedIn: false }; }
+  if (!info.signedIn) { data.cards = []; setAccountState('signed_out', { userId: null, email: null, profile: null }); return; }
+  await enterSignedIn(info);
+}
+
+async function enterSignedIn(info) {
+  account = { ...account, mode: 'profile', userId: info.userId, email: info.email, profile: null, serverProfile: null, error: null };
+  activateUserData(info.userId);
+  const cached = readProfileCache(localStorage, info.userId);
+  const cacheReady = cached?.profile && isProfileComplete(cached.profile);
+  if (cacheReady) {
+    // v1.4.2 ve öncesinin önbelleğe aldığı katalog eşik kodlu seçenekler taşır; kullanılmaz (paketli katalog + sunucu).
+    account.catalog = cached.catalog?.schema === PROFILE_CATALOG_SCHEMA ? cached.catalog : BUNDLED_PROFILE_CATALOG;
+    account.profile = normalizeProfile(cached.profile, account.catalog);
+    account.serverProfile = clone(account.profile);
+    renderAll();
+    setAccountState('ready');
+  } else {
+    setAccountState('loading');
+  }
+  try {
+    const store = profileStore();
+    const master = await store.loadMaster();
+    const serverProfile = await store.loadProfile(info.userId, master);
+    account.store = store; account.master = master; account.catalog = master.catalog;
+    if (!serverProfile || !isProfileComplete(serverProfile)) {
+      account.serverProfile = serverProfile ? normalizeProfile(serverProfile, master.catalog) : null;
+      account.profile = null;
+      account.draft = await buildOnboardingDraft(serverProfile);
+      account.onbStep = 'banks';
+      data.cards = [];
+      setAccountState('needs_onboarding');
+      return;
+    }
+    account.profile = normalizeProfile(serverProfile, master.catalog);
+    account.serverProfile = clone(account.profile);
+    writeProfileCache(localStorage, info.userId, { profile: account.profile, catalog: master.catalog, savedAt: new Date().toISOString() });
+    renderAll();
+    if (account.state !== 'ready') setAccountState('ready'); else { applyModeUi(); renderAccountSummary(); }
+  } catch (e) {
+    if (e instanceof SchemaMissingError) { enterLegacyFallback(); return; }
+    if (cacheReady) { showPwaToast('Profil sunucusuna ulaşılamadı; cihazdaki son profil kullanılıyor.'); return; }
+    // Ağ/sunucu hatası onboarding'i ASLA tetiklemez: kullanıcı profilini yeniden oluşturmak zorunda kalmamalı.
+    setAccountState('error', { error: e.message || String(e) });
+  }
+}
+
+function enterLegacyFallback() {
+  account = { ...account, mode: 'legacy', state: 'ready', profile: null, notice: 'Hesaba bağlı profil sunucuda henüz etkin değil (migration 008–010). Uygulama eski tek-kullanıcı modunda çalışıyor.' };
+  data.profileMode = false;
+  if (!(data.cards || []).length) data.cards = clone(initialCards);
+  renderAll();
+  applyModeUi(); showRoute();
+  showPwaToast('Profil sunucusu hazır değil; eski modda çalışılıyor.');
+}
+
+async function buildOnboardingDraft(serverProfile) {
+  const catalog = account.catalog;
+  if (serverProfile && ((serverProfile.banks || []).length || (serverProfile.cards || []).length)) return normalizeProfile({ ...serverProfile, onboardingCompletedAt: null }, catalog);
+  // Ön-doldurma (onaysız kaydedilmez): kullanıcının kendi bulut satırındaki ayarlar + bu cihazdan devraldığı eski veri.
+  let settings = {};
+  try { const row = await fetchCloudUserState(); if (row?.settings) settings = row.settings; } catch {}
+  let claimedBy = null, legacy = null;
+  try { claimedBy = localStorage.getItem(LEGACY_CLAIM_KEY); legacy = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null'); } catch {}
+  const mine = claimedBy === account.userId && legacy;
+  const legacyCards = mine ? (legacy.cards || []) : [];
+  const legacySettings = mine ? (legacy.settings || {}) : {};
+  const prefill = legacyToProfilePrefill({ settings: { ...legacySettings, ...settings }, cards: legacyCards }, catalog);
+  return { ...prefill, onboardingCompletedAt: null };
+}
+
+async function doSignOut() {
+  await signOut();
+  try { localStorage.removeItem('banka-kampanya-avcisi-last-query-debug'); } catch {}
+  lastQueryDebug = null;
+  storageKey = STORAGE_KEY;
+  data = load('__signed_out__'); data.cards = []; ensureCoreBenefitsInData();
+  const results = $('#recommendResults'); if (results) results.innerHTML = '';
+  account = { ...account, userId: null, email: null, profile: null, serverProfile: null, draft: null, store: null, master: null, claimedLegacy: false, notice: null };
+  if (cloudConfigured()) setAccountState('signed_out'); else { applyModeUi(); showRoute(); }
+  showPwaToast('Çıkış yapıldı.');
+}
+
+// ---------- Giriş / kayıt ----------
+let authMode = 'signin';
+function renderAuthMode() {
+  const signup = authMode === 'signup';
+  $('#authTitle').textContent = signup ? 'Hesap oluştur' : 'Giriş yap';
+  $('#authSubmitBtn').textContent = signup ? 'Hesap oluştur' : 'Giriş yap';
+  $('#authModeToggle').textContent = signup ? 'Zaten hesabın var mı? Giriş yap' : 'Hesabın yok mu? Hesap oluştur';
+  $('#authPassword').setAttribute('autocomplete', signup ? 'new-password' : 'current-password');
+}
+
+function wireAuth() {
+  renderAuthMode();
+  $('#authModeToggle').addEventListener('click', () => { authMode = authMode === 'signin' ? 'signup' : 'signin'; renderAuthMode(); $('#authStatus').textContent = ''; });
+  $('#authForgotBtn').addEventListener('click', async () => {
+    const email = $('#authEmail').value.trim();
+    const st = $('#authStatus');
+    if (!email) { st.textContent = 'Şifre sıfırlama bağlantısı için e-postanı yaz.'; return; }
+    try { await requestPasswordReset(email); st.textContent = 'Şifre sıfırlama bağlantısı e-postana gönderildi.'; }
+    catch (e) { st.textContent = e.message; }
+  });
+  $('#authForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const email = $('#authEmail').value.trim();
+    const password = $('#authPassword').value;
+    const st = $('#authStatus');
+    const btn = $('#authSubmitBtn');
+    if (!email || password.length < 8) { st.textContent = 'Geçerli bir e-posta ve en az 8 karakterli şifre gir.'; return; }
+    btn.disabled = true; st.textContent = authMode === 'signup' ? 'Hesap oluşturuluyor…' : 'Giriş yapılıyor…';
+    try {
+      if (authMode === 'signup') {
+        const out = await signUp(email, password);
+        if (!out.access_token) { st.textContent = 'Hesap oluşturuldu. E-postana gelen bağlantıyla doğrula, sonra giriş yap.'; authMode = 'signin'; renderAuthMode(); return; }
+      } else {
+        await signIn(email, password);
+      }
+      $('#authPassword').value = '';
+      st.textContent = '';
+      await enterSignedIn(await sessionInfo());
+    } catch (err) {
+      st.textContent = `${authMode === 'signup' ? 'Kayıt' : 'Giriş'} başarısız: ${err.message}`;
+    } finally { btn.disabled = false; }
+  });
+}
+
+// ---------- Ortak profil düzenleyicileri (onboarding + Profil ekranları) ----------
+function toggleRow({ action, code, on, title, subtitle = '' }) {
+  return `<button type="button" class="toggle-row${on ? ' on' : ''}" role="switch" aria-checked="${on}" data-action="${action}" data-code="${esc(code)}">
+    <span class="toggle-text"><strong>${esc(title)}</strong>${subtitle ? `<small>${esc(subtitle)}</small>` : ''}</span><span class="toggle-check" aria-hidden="true">${on ? '✓' : ''}</span></button>`;
+}
+
+function banksHtml(profile, catalog) {
+  const banks = [...catalog.banks].sort((a, b) => (a.sortOrder ?? 100) - (b.sortOrder ?? 100));
+  return `<div class="toggle-list">${banks.map(b => toggleRow({ action: 'bank', code: b.code, on: profile.banks.includes(b.code), title: b.name,
+    subtitle: `${catalog.cardProducts.filter(c => c.bankCode === b.code).length} kart ürünü` })).join('')}</div>`;
+}
+
+function cardsHtml(profile, catalog, { showAllBanks = false } = {}) {
+  const banks = [...catalog.banks].sort((a, b) => (a.sortOrder ?? 100) - (b.sortOrder ?? 100)).filter(b => showAllBanks || profile.banks.includes(b.code));
+  if (!banks.length) return '<p class="muted">Önce banka seç.</p>';
+  return banks.map(b => {
+    const cards = catalog.cardProducts.filter(c => c.bankCode === b.code).sort((x, y) => (x.sortOrder ?? 100) - (y.sortOrder ?? 100));
+    return `<div class="bank-group"><h4>${esc(b.name)}</h4><div class="toggle-list">${cards.map(c => toggleRow({ action: 'card', code: c.code, on: profile.cards.includes(c.code), title: c.name })).join('')}</div></div>`;
+  }).join('');
+}
+
+function attributesHtml(profile, catalog) {
+  const dims = applicableDimensions(profile, catalog);
+  if (!dims.length) return '<p class="muted">Seçtiğin kartlar için ek segment/statü sorusu yok.</p>';
+  return dims.map(d => {
+    const current = profile.attributes[d.code] ?? null;
+    const opts = [...d.options].sort((a, b) => (a.sortOrder ?? 100) - (b.sortOrder ?? 100));
+    const st = attributeConfirmationStatus(profile, catalog, d.code);
+    // Ölçütün kaynağı ve doğrulama durumu (tutar sorulmaz; yalnız bant seçilir).
+    const crit = current ? currentCriteria(catalog, d.code, current) : null;
+    const source = crit ? `<p class="muted small attr-source">Kaynak: <a href="${esc(crit.sourceUrl)}" target="_blank" rel="noopener">resmi sayfa</a> · ${crit.verifiedAt ? `doğrulandı ${esc(String(crit.verifiedAt).slice(0, 10))}` : 'yeniden doğrulanmadı'}</p>` : '';
+    const attention = REQUIRES_RECONFIRMATION.has(st.status)
+      ? `<div class="attr-reconfirm" data-dim="${esc(d.code)}"><p class="small">Bu bandın tanımı (eşikleri) seçimini onayladığından beri güncellendi. Hâlâ bu bantta mısın? Onaylayana kadar bu seçim hesaplamalarda “bilinmiyor” sayılır.</p>
+         <button type="button" class="chip on" data-action="confirm-attr" data-dim="${esc(d.code)}">Evet, ${esc(optionDisplayLabel(catalog, d.code, current))}</button></div>`
+      : st.status === 'criteria_unavailable' ? '<p class="small attr-reconfirm">Bu bandın güncel tanımı şu an mevcut değil; seçimin hesaplamalarda “bilinmiyor” sayılır.</p>' : '';
+    return `<fieldset class="attr-group" data-status="${esc(st.status)}"><legend>${esc(d.label)}</legend>${attention}<div class="chip-row">
+      ${opts.map(o => `<button type="button" class="chip${current === o.code ? ' on' : ''}" aria-pressed="${current === o.code}" data-action="attr" data-dim="${esc(d.code)}" data-code="${esc(o.code)}">${esc(optionDisplayLabel(catalog, d.code, o.code))}</button>`).join('')}
+      <button type="button" class="chip chip-muted${current === null ? ' on' : ''}" aria-pressed="${current === null}" data-action="attr" data-dim="${esc(d.code)}" data-code="">Bilmiyorum</button>
+    </div>${source}</fieldset>`;
+  }).join('') + '<p class="muted small">Segment seçilmezse o segmente özel kampanyalar ve oranlar kesin hesaplanmaz.</p>';
+}
+
+function applyEditorAction(profile, el, catalog) {
+  const { action, code, dim } = el.dataset;
+  if (action === 'bank') return toggleBank(profile, code, !profile.banks.includes(code), catalog);
+  if (action === 'card') return toggleCard(profile, code, !profile.cards.includes(code), catalog);
+  if (action === 'attr') return setAttribute(profile, dim, code || null, catalog);
+  if (action === 'confirm-attr') return confirmAttribute(profile, dim, catalog);
+  return profile;
+}
+
+async function persistProfile(next, { statusEl } = {}) {
+  if (!account.store || !account.master) throw new Error('Profil sunucusuna bağlanılamadı; değişiklik kaydedilemedi.');
+  const before = account.serverProfile || emptyProfile();
+  const diff = diffProfiles(before, next);
+  await account.store.saveProfile(account.userId, diff, next, account.master);
+  // Daha önce etkin olan segmentler: kayıtlı profil; ilk kurulumda bu cihazdaki önceki (eski mod) ayarlar.
+  // Yalnız gerçekten DEĞİŞEN segmentlerin bankalarında kalan-limit doğrulaması sıfırlanır.
+  const previousEffective = account.profile || { attributes: Object.fromEntries((account.catalog.dimensions || [])
+    .filter(d => d.settingKey && data.settings?.[d.settingKey] != null).map(d => [d.code, data.settings[d.settingKey]])) };
+  const affectedBanks = banksAffectedByAttributeChange(previousEffective, next, account.catalog);
+  account.profile = clone(next);
+  account.serverProfile = clone(next);
+  writeProfileCache(localStorage, account.userId, { profile: account.profile, catalog: account.catalog, savedAt: new Date().toISOString() });
+  syncCardSegmentsFromSettings();
+  for (const bank of affectedBanks) invalidateSegmentDependentStates(bank);
+  save(); renderAll();
+  if (statusEl) statusEl.textContent = 'Kaydedildi ✓';
+}
+
+async function savePreferences(patch) {
+  if (!account.profile) return;
+  const next = { ...account.profile, preferences: { ...(account.profile.preferences || {}), ...patch } };
+  try { await persistProfile(next); } catch (e) { showPwaToast(`Tercih kaydedilemedi: ${e.message}`); }
+}
+
+// ---------- Onboarding ----------
+function renderOnboarding() {
+  const body = $('#onboardingBody'); if (!body) return;
+  const draft = account.draft || emptyProfile();
+  const step = account.onbStep || 'banks';
+  $$('#onboardingSteps li').forEach(li => { li.classList.toggle('current', li.dataset.step === step); });
+  const intro = {
+    banks: ['Hangi bankaları kullanıyorsun?', 'Kartlarını seçebilmen için önce bankalarını işaretle.'],
+    cards: ['Hangi kartların var?', 'Yalnız sahip olduğun kartlar karşılaştırılır.'],
+    attributes: ['Segment ve statülerin', 'Bunlar kampanya uygunluğunu ve oranları belirler. Emin değilsen “Bilmiyorum” seç.'],
+    review: ['Profilini kontrol et', 'Bu seçimleri daha sonra Profil ekranından istediğin zaman değiştirebilirsin.'],
+  }[step];
+  let content = '';
+  if (step === 'banks') content = banksHtml(draft, account.catalog);
+  else if (step === 'cards') content = cardsHtml(draft, account.catalog);
+  else if (step === 'attributes') content = attributesHtml(draft, account.catalog);
+  else content = reviewHtml(draft, account.catalog);
+  body.innerHTML = `<h2 class="onb-title">${esc(intro[0])}</h2><p class="muted">${esc(intro[1])}</p>${content}`;
+  $('#onbBack').hidden = step === 'banks';
+  $('#onbNext').hidden = step === 'review';
+  $('#onbFinish').hidden = step !== 'review';
+  $('#onbFinish').disabled = !canCompleteOnboarding(draft);
+}
+
+function reviewHtml(profile, catalog) {
+  const engineCards = profileToEngineCards(profile, catalog);
+  const dims = applicableDimensions(profile, catalog);
+  const attrs = dims.map(d => { const o = d.options.find(x => x.code === profile.attributes[d.code]); return `<li><span>${esc(d.label)}</span><strong>${esc(o ? optionDisplayLabel(catalog, d.code, o.code) : 'Seçilmedi')}</strong></li>`; }).join('');
+  return `<div class="review"><h4>Kartların</h4><ul class="review-list">${engineCards.map(c => `<li><span>${esc(c.bank)}</span><strong>${esc(c.name)}</strong></li>`).join('') || '<li>Kart seçilmedi</li>'}</ul>
+    ${attrs ? `<h4>Segment ve statüler</h4><ul class="review-list">${attrs}</ul>` : ''}</div>`;
+}
+
+function wireOnboarding() {
+  $('#onboardingBody').addEventListener('click', e => {
+    const el = e.target.closest('[data-action]'); if (!el) return;
+    account.draft = applyEditorAction(account.draft || emptyProfile(), el, account.catalog);
+    $('#onboardingStatus').textContent = '';
+    renderOnboarding();
+  });
+  $('#onbNext').addEventListener('click', () => {
+    const r = nextOnboardingStep(account.onbStep || 'banks', account.draft || emptyProfile(), account.catalog);
+    $('#onboardingStatus').textContent = r.error || '';
+    account.onbStep = r.step; renderOnboarding(); window.scrollTo(0, 0);
+  });
+  $('#onbBack').addEventListener('click', () => {
+    account.onbStep = previousOnboardingStep(account.onbStep || 'banks', account.draft || emptyProfile(), account.catalog);
+    $('#onboardingStatus').textContent = ''; renderOnboarding(); window.scrollTo(0, 0);
+  });
+  $('#onbFinish').addEventListener('click', async () => {
+    const st = $('#onboardingStatus');
+    const draft = account.draft || emptyProfile();
+    if (!canCompleteOnboarding(draft)) { st.textContent = 'En az bir kart seç.'; return; }
+    $('#onbFinish').disabled = true; st.textContent = 'Profil kaydediliyor…';
+    try {
+      // İnceleme ekranında gösterilen (güncel ölçüt etiketli) seçimler bu adımda onaylanmış olur.
+      await persistProfile({ ...confirmPendingAttributes(draft, account.catalog), onboardingCompletedAt: new Date().toISOString() });
+      account.draft = null;
+      history.replaceState(null, '', DEFAULT_ROUTE);
+      setAccountState('ready');
+      showPwaToast('Profilin hazır.');
+    } catch (e) { st.textContent = `Kaydedilemedi: ${e.message}`; $('#onbFinish').disabled = false; }
+  });
+  $('#onbSignOut').addEventListener('click', doSignOut);
+}
+
+// ---------- Profil › Bankalarım ve Kartlarım / Müşteri Profili ----------
+const editors = { cards: null, attrs: null };
+function editorDirty(key) { return editors[key] && JSON.stringify(editors[key]) !== JSON.stringify(account.profile); }
+
+function openCardsEditor() {
+  if (account.mode !== 'profile' || !account.profile) return;
+  if (!editorDirty('cards')) editors.cards = clone(account.profile);
+  renderCardsEditor();
+}
+function renderCardsEditor() {
+  const el = $('#profileCardsEditor'); if (!el || !editors.cards) return;
+  el.innerHTML = `<div class="settings-card"><h3>Bankalarım</h3>${banksHtml(editors.cards, account.catalog)}</div>
+    <div class="settings-card"><h3>Kartlarım</h3>${cardsHtml(editors.cards, account.catalog)}</div>`;
+  const dirty = editorDirty('cards');
+  $('#profileCardsStatus').textContent = dirty ? 'Kaydedilmemiş değişiklik var' : 'Kaydedildi ✓';
+  $('#profileCardsSave').disabled = !dirty;
+}
+function openAttributesEditor() {
+  if (account.mode !== 'profile' || !account.profile) return;
+  if (!editorDirty('attrs')) editors.attrs = clone(account.profile);
+  renderAttributesEditor();
+}
+function renderAttributesEditor() {
+  const el = $('#profileAttributesEditor'); if (!el || !editors.attrs) return;
+  el.innerHTML = `<div class="settings-card">${attributesHtml(editors.attrs, account.catalog)}</div>`;
+  const dirty = editorDirty('attrs');
+  $('#profileAttributesStatus').textContent = dirty ? 'Kaydedilmemiş değişiklik var' : 'Kaydedildi ✓';
+  $('#profileAttributesSave').disabled = !dirty;
+}
+
+function wireProfileEditors() {
+  $('#profileCardsEditor').addEventListener('click', e => {
+    const el = e.target.closest('[data-action]'); if (!el || !editors.cards) return;
+    editors.cards = applyEditorAction(editors.cards, el, account.catalog); renderCardsEditor();
+  });
+  $('#profileAttributesEditor').addEventListener('click', e => {
+    const el = e.target.closest('[data-action]'); if (!el || !editors.attrs) return;
+    editors.attrs = applyEditorAction(editors.attrs, el, account.catalog); renderAttributesEditor();
+  });
+  $('#profileCardsSave').addEventListener('click', async () => {
+    const st = $('#profileCardsStatus');
+    if (!canCompleteOnboarding(editors.cards)) { st.textContent = 'En az bir kart seçili kalmalı.'; return; }
+    st.textContent = 'Kaydediliyor…'; $('#profileCardsSave').disabled = true;
+    try { await persistProfile(editors.cards, { statusEl: st }); editors.cards = clone(account.profile); renderCardsEditor(); }
+    catch (e) { st.textContent = `Kaydedilemedi: ${e.message}`; $('#profileCardsSave').disabled = false; }
+  });
+  $('#profileAttributesSave').addEventListener('click', async () => {
+    const st = $('#profileAttributesStatus');
+    st.textContent = 'Kaydediliyor…'; $('#profileAttributesSave').disabled = true;
+    try { await persistProfile(editors.attrs, { statusEl: st }); editors.attrs = clone(account.profile); renderAttributesEditor(); }
+    catch (e) { st.textContent = `Kaydedilemedi: ${e.message}`; $('#profileAttributesSave').disabled = false; }
+  });
+}
+
+// ---------- Hesap ekranı ve durum ekranı ----------
+function renderAccountSummary() {
+  const dl = $('#accountSummary'); if (!dl) return;
+  applyModeUi();
+  if (account.mode !== 'profile' || !account.userId) {
+    if (account.notice) { const st = $('#cloudSyncStatus'); if (st) st.textContent = account.notice; }
+    return;
+  }
+  const rows = [
+    ['E-posta', account.email || '—'],
+    ['Oturum', 'Bu cihazda açık'],
+    ['Profil', account.profile?.onboardingCompletedAt ? `Tamamlandı (${formatRefreshTime(account.profile.onboardingCompletedAt)})` : 'Tamamlanmadı'],
+    ['Kartlar', String((account.profile?.cards || []).length)],
+    ['Profil verisi', account.catalog?.source === 'supabase' ? 'Sunucudan yüklendi' : 'Cihazdaki önbellek'],
+  ];
+  dl.innerHTML = rows.map(([k, v]) => `<div class="info-row"><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join('');
+  refreshCloudUi();
+  if (account.notice) { $('#changePasswordStatus').textContent = account.notice; account.notice = null; }
+}
+
+function renderAccountStatus() {
+  const t = $('#accountStatusText'); if (!t) return;
+  const err = account.state === 'error';
+  t.textContent = err ? `Profil yüklenemedi: ${account.error || 'bilinmeyen hata'}. Bağlantını kontrol edip tekrar dene. Profilin silinmedi.` : 'Profil yükleniyor…';
+  $('#accountRetryBtn').hidden = !err;
+  $('#accountStatusSignOut').hidden = !err;
+}
+
+function wireAccountScreens() {
+  $('#accountSignOutBtn').addEventListener('click', doSignOut);
+  $('#accountStatusSignOut').addEventListener('click', doSignOut);
+  $('#accountRetryBtn').addEventListener('click', async () => {
+    let info = { signedIn: false };
+    try { info = await sessionInfo(); } catch {}
+    if (!info.signedIn) { setAccountState('signed_out'); return; }
+    await enterSignedIn(info);
+  });
+  $('#changePasswordForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const v = $('#changePasswordValue').value; const st = $('#changePasswordStatus');
+    if (v.length < 8) { st.textContent = 'Şifre en az 8 karakter olmalı.'; return; }
+    try { await updatePassword(v); $('#changePasswordValue').value = ''; st.textContent = 'Şifren güncellendi.'; }
+    catch (err) { st.textContent = err.message; }
+  });
 }
 
 let deferredInstallPrompt=null;
@@ -1060,9 +1598,13 @@ wireRefreshTools();
 wirePrivateCampaign();
 wireCloudTools();
 wirePwaInstall();
+wireAuth();
+wireOnboarding();
+wireProfileEditors();
+wireAccountScreens();
 renderAll();
 loadRuntimeVersion().then(() => renderDashboard());
-loadLiveCatalog();
+initAccount().finally(() => loadLiveCatalog());
 
 // Ayrı .bat ile başlatılan canlı taramayı da izle. Tarama sırasında karar motoru
 // son başarılı tam kataloğu kullanmaya devam eder; yeni katalog yalnız tarama bitince alınır.
@@ -1084,4 +1626,14 @@ if (LOCAL_API) setInterval(async () => {
   } catch {}
 }, 3000);
 
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
+// Service worker: her dağıtımda CACHE adı (sürüm + build) değişir; tarayıcı yeni sw.js'i görünce kurar,
+// skipWaiting/clients.claim ile hemen devreye girer ve eski önbellekleri siler. Açılışta güncelleme de kontrol edilir.
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('./sw.js').then(reg => { try { reg.update(); } catch {} }).catch(() => {});
+  let reloadedForUpdate = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (reloadedForUpdate || !navigator.serviceWorker.controller) return;
+    reloadedForUpdate = true;
+    showPwaToast(`Uygulama güncellendi (${runtimeAppVersion}).`);
+  });
+}

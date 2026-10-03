@@ -2,6 +2,7 @@
 // DOM'a dokunmayan saf fonksiyonlardır; app.js bunları kullanır, test-catalog-state.mjs test eder.
 import { ensureReset } from './engine.js';
 import { trDay, addTrDays } from './tr-time.js';
+import { normalizeLegacyCampaignSegments } from './legacy-option-aliases.js';
 
 export function normSourceUrl(u) { return String(u || '').trim().replace(/\/+$/, '').toLowerCase(); }
 
@@ -139,7 +140,8 @@ export function applyOfficialSourceObservations(core, observations = [], now = n
 }
 
 export function mergeCatalogWithCore(campaigns = [], { coreBenefits = [], existingCampaigns = [], now = new Date() } = {}) {
-  const incoming = clone(Array.isArray(campaigns) ? campaigns : []);
+  // v1.4.3: yayında kalmış eski kayıtların eşik etiketli segment anahtarları nötr bant kodlarına çevrilir.
+  const incoming = clone(Array.isArray(campaigns) ? campaigns : []).map(normalizeLegacyCampaignSegments);
   const live = incoming.filter(c => !isPrivateCampaign(c));
   const consumed = new Set();
   const cores = coreBenefits.map(core => {
