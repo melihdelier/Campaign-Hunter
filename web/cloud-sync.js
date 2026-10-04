@@ -10,6 +10,26 @@ function cfg() {
   };
 }
 
+// v1.4.4 — Kimlik doğrulama e-postalarının (kayıt doğrulama, şifre sıfırlama) döneceği TEK kanonik uygulama kökü.
+// Uygulama dosyalarının yayınlandığı dizinden türetilir (bu modül index.html ile aynı dizindedir), sayfanın o anki
+// yolundan/rotasından DEĞİL:
+//   https://melihdelier.github.io/Campaign-Hunter/cloud-sync.js → https://melihdelier.github.io/Campaign-Hunter/
+//   http://localhost:8080/cloud-sync.js                          → http://localhost:8080/
+//   https://ozel-alan.example/cloud-sync.js                      → https://ozel-alan.example/
+// Sorgu dizesi ve hash atılır. http(s) dışı (file:// vb.) için undefined → Supabase Site URL'ye düşer.
+// Bu adres Supabase Auth › URL Configuration › Redirect URLs listesinde izinli olmalıdır.
+export function getAuthRedirectUrl(moduleUrl = import.meta.url) {
+  try {
+    const u = new URL('./', moduleUrl);
+    return /^https?:$/.test(u.protocol) ? u.href : undefined;
+  } catch { return undefined; }
+}
+
+function withRedirect(url, moduleUrl) {
+  const r = moduleUrl ? getAuthRedirectUrl(moduleUrl) : getAuthRedirectUrl();
+  return r ? `${url}${url.includes('?') ? '&' : '?'}redirect_to=${encodeURIComponent(r)}` : url;
+}
+
 export function cloudConfigured() {
   const c = cfg();
   return Boolean(c.supabaseUrl && c.supabaseAnonKey);
@@ -59,10 +79,11 @@ async function refreshSessionIfNeeded() {
   storeSession(s); return s;
 }
 
-export async function signUp(email, password) {
+export async function signUp(email, password, { moduleUrl } = {}) {
   if (!cloudConfigured()) throw new Error('Supabase bağlantısı yapılandırılmadı.');
   const c = cfg();
-  const res = await fetch(`${c.supabaseUrl}/auth/v1/signup`, {
+  // v1.4.4: doğrulama e-postası açıkça uygulama köküne döner (önceden redirect_to gönderilmiyordu → Site URL'ye düşüyordu).
+  const res = await fetch(withRedirect(`${c.supabaseUrl}/auth/v1/signup`, moduleUrl), {
     method:'POST', headers: authHeaders(), body: JSON.stringify({email, password})
   });
   const out = await res.json().catch(()=>({}));
@@ -100,11 +121,10 @@ export async function signOut({ fetchImpl } = {}) {
   return { serverRevoked };
 }
 
-export async function requestPasswordReset(email) {
+export async function requestPasswordReset(email, { moduleUrl } = {}) {
   if (!cloudConfigured()) throw new Error('Supabase bağlantısı yapılandırılmadı.');
   const c = cfg();
-  const redirect = typeof location !== 'undefined' ? `${location.origin}${location.pathname}` : undefined;
-  const res = await fetch(`${c.supabaseUrl}/auth/v1/recover${redirect ? `?redirect_to=${encodeURIComponent(redirect)}` : ''}`, {
+  const res = await fetch(withRedirect(`${c.supabaseUrl}/auth/v1/recover`, moduleUrl), {
     method: 'POST', headers: authHeaders(), body: JSON.stringify({ email })
   });
   if (!res.ok) { const out = await res.json().catch(() => ({})); throw new Error(out.msg || out.error_description || out.message || `Şifre sıfırlama başlatılamadı (HTTP ${res.status})`); }
@@ -121,7 +141,30 @@ export async function updatePassword(password) {
   return true;
 }
 
-// E-posta doğrulama / şifre sıfırlama bağlantısı uygulamaya #access_token=… ile döner: oturumu kaydet, adresi temizle.
+// v1.4.4 — Supabase'in uygulamaya dönüşünü (callback) işler. Uygulama açılışında, hash tabanlı yönlendirici adresi
+// değiştirmeden ÖNCE çağrılmalıdır (v1.4.3'te yönlendirici #access_token=… adresini önce '#/hangi-kart'a çevirdiği için
+// oturum kayboluyordu). Biçimler (implicit akış — istemci PKCE kullanmaz):
+//   #access_token=…&refresh_token=…&expires_in=…&type=signup|recovery|magiclink|invite → oturum kaydedilir
+//   #error=…&error_code=otp_expired&error_description=…  (veya aynısı ?sorgu dizesinde)     → anlaşılır hata
+//   ?code=… / ?token_hash=… (bu istemcinin istemediği akışlar)                               → "giriş yap" bilgisi
+// Dönüş: null (callback değil) | { kind: 'session'|'error'|'signin_required', type, code, description }
+export function captureAuthCallback(loc = (typeof location !== 'undefined' ? location : null)) {
+  if (!loc) return null;
+  const hash = new URLSearchParams(String(loc.hash || '').replace(/^#\/?/, ''));
+  const query = new URLSearchParams(String(loc.search || '').replace(/^\?/, ''));
+  const pick = k => hash.get(k) ?? query.get(k);
+  if (hash.get('access_token')) {
+    const r = consumeAuthRedirect(loc.hash);
+    if (r) return { kind: 'session', type: r.type };
+  }
+  if (pick('error') || pick('error_code') || pick('error_description')) {
+    return { kind: 'error', type: pick('type') || null, code: pick('error_code') || pick('error') || 'unknown', description: pick('error_description') || '' };
+  }
+  if (query.get('code') || query.get('token_hash')) return { kind: 'signin_required', type: query.get('type') || null };
+  return null;
+}
+
+// E-posta doğrulama / şifre sıfırlama bağlantısı uygulamaya #access_token=… ile döner: oturumu kaydet.
 export function consumeAuthRedirect(hash) {
   const h = String(hash || '');
   if (!/access_token=/.test(h)) return null;

@@ -88,7 +88,7 @@
         <p>İşyerini ve tutarı yaz; kartlarının kampanyalarını, segment avantajlarını ve normal kazanımlarını karşılaştıralım.</p>
       </div>
       <form id="recommendForm" class="form-card recommend-form">
-        <label>İşyeri / açıklama<input id="merchant" placeholder="Örn. Migros, restoran, otel" autocomplete="off" /></label>
+        <label>İşyeri (isteğe bağlı)<input id="merchant" placeholder="Boş bırakabilirsin · örn. Migros, Index" autocomplete="off" /></label>
         <label>Tutar (TL)<input id="amount" inputmode="decimal" placeholder="15000" required /></label>
         <label>Kategori
           <select id="category">
@@ -133,7 +133,6 @@
         <label>Kampanya / işyeri ara
           <input id="campaignBrowseSearch" placeholder="Örn. Shell, Opet, restoran, Amazon" />
         </label>
-        <label class="check-label"><input id="campaignBrowseOnlyComplete" type="checkbox" /> Yalnız detayları tam çözülenleri göster</label>
       </div>
       <div id="campaignBrowseSummary" class="catalog-status"></div>
       <div class="campaign-browser-layout">
@@ -199,11 +198,11 @@
         <h3>Segment, varlık bandı ve statüler</h3>
         <label>THY Miles&Smiles statüsü<select id="thyStatus"><option value="classic">Classic</option><option value="classic_plus">Classic Plus</option><option value="elite">Elite</option><option value="elite_plus">Elite Plus</option></select></label>
         <label>QNB müşteri segmenti<select id="qnbSegment"><option value="other">Diğer / QNB First altı</option><option value="first">QNB First</option><option value="first_plus">QNB First Plus</option><option value="private" selected>QNB Private</option></select></label>
-        <label>Akbank Wings varlık programı<select id="wingsTier"><option value="standard">Classic / 1 milyon TL altı</option><option value="black">Black / 1–2 milyon TL</option><option value="black_plus" selected>Black Plus / 2 milyon TL+</option></select></label>
+        <label>Akbank Wings varlık programı<select id="wingsTier"><!-- seçenekler ana veriden doldurulur --></select></label>
         <label>Maximiles Black varlık bandı<select id="maximilesBand"><!-- seçenekler ölçüt kayıtlarından (profile-catalog.js) doldurulur --></select></label>
         <label>Yapı Kredi Crystal varlık bandı<select id="crystalBand"><!-- seçenekler ölçüt kayıtlarından (profile-catalog.js) doldurulur --></select></label>
         <label>Yapı Kredi Crystal kart tipi<select id="crystalCardType"><option value="crystal" selected>Crystal</option><option value="metal_crystal">Metal Crystal</option><option value="crystal_and_metal">Crystal + Metal Crystal (ikisi birden)</option></select></label>
-        <label>TEB Infinite paket seviyesi<select id="tebTier"><option value="standard">Standart / 1 milyon TL'ye kadar</option><option value="plus">Plus / 1–5 milyon TL</option><option value="premium">Premium / 5–10 milyon TL</option><option value="ultra" selected>Ultra / 10 milyon TL+</option></select></label>
+        <label>TEB Infinite paket seviyesi<select id="tebTier"><!-- seçenekler ana veriden doldurulur --></select></label>
         <p class="muted">Seçim değişince kampanya uygunluğu ve segment bazlı limitler yeniden hesaplanır; ilgili kampanyalarda kalan limit yeniden doğrulama ister.</p>
       </div>
     </section>
@@ -293,8 +292,13 @@
       <a class="back-link" href="#/profil">‹ Profil</a>
       <h2>Uygulama Bilgisi</h2>
       <div class="settings-card">
-        <div class="info-version">Sürüm <span id="runtimeVersion">v1.4.3</span></div>
+        <div class="info-version">Sürüm <span id="runtimeVersion">v1.5.0</span></div>
         <dl id="infoRows" class="info-rows"></dl>
+      </div>
+      <div class="settings-card">
+        <h3>Banka ve kampanya kapsamı</h3>
+        <p class="muted small">Bir bankanın listede olması tam destek anlamına gelmez. Kampanyalar resmi kaynaklardan merkezi olarak, günde iki kez taranır.</p>
+        <div id="coverageInfo" class="coverage-info"></div>
       </div>
       <div class="settings-card">
         <h3>Yenilikler</h3>

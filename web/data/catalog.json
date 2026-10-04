@@ -67,7 +67,15 @@
       "sourceKind": "official_web",
       "sourceUrl": "https://www.maximiles.com.tr/kampanyalar/e-ticaret-alisverislerinizde-1-000-tl-ye-varan-maxipuan",
       "verifiedAt": "2026-09-23T21:00:00+03:00",
-      "termsSummary": "Amazon.com.tr, Hepsiburada, İncehesap.com, n11, Pazarama ve Trendyol’da farklı günlerde yapılan ikinci ve sonraki 3.000 TL+ alışverişlerin her birine 250 TL; toplam en fazla 1.000 TL MaxiPuan. Katılım gerekli."
+      "termsSummary": "Amazon.com.tr, Hepsiburada, İncehesap.com, n11, Pazarama ve Trendyol’da farklı günlerde yapılan ikinci ve sonraki 3.000 TL+ alışverişlerin her birine 250 TL; toplam en fazla 1.000 TL MaxiPuan. Katılım gerekli.",
+      "eligibilitySchemaVersion": 1,
+      "eligibilityRule": {
+        "payWith": {
+          "cards": [
+            "is-maximiles-black"
+          ]
+        }
+      }
     },
     {
       "id": "official-wings-program-restoran-2026",
@@ -140,7 +148,83 @@
       "sourceKind": "core_benefit",
       "sourceUrl": "https://www.wingscard.com.tr/ayricaliklar/tum-restoranlarda-15e-varan-indirim",
       "verifiedAt": "2026-09-24T11:31:00+03:00",
-      "termsSummary": "Wings programına katılım gerekir. Classic: 1.000 TL+ restoran harcamasına %5, aylık 250 TL; Black: %10, aylık 1.250 TL; Black Plus: %15, aylık 2.500 TL."
+      "termsSummary": "Wings programına katılım gerekir. Classic: 1.000 TL+ restoran harcamasına %5, aylık 250 TL; Black: %10, aylık 1.250 TL; Black Plus: %15, aylık 2.500 TL.",
+      "eligibilitySchemaVersion": 1,
+      "eligibilityRule": {
+        "all": [
+          {
+            "payWith": {
+              "cards": [
+                "akbank-wings-elite",
+                "akbank-wings-black"
+              ]
+            }
+          },
+          {
+            "attr": {
+              "dim": "wings_tier",
+              "in": [
+                "standard",
+                "black",
+                "black_plus"
+              ]
+            }
+          }
+        ]
+      },
+      "rewardVariants": [
+        {
+          "when": {
+            "attr": {
+              "dim": "wings_tier",
+              "in": [
+                "standard"
+              ]
+            }
+          },
+          "rewardRule": {
+            "kind": "percent",
+            "rate": 0.05,
+            "minSpend": 1000
+          },
+          "periodCap": 250,
+          "rulesComplete": true
+        },
+        {
+          "when": {
+            "attr": {
+              "dim": "wings_tier",
+              "in": [
+                "black"
+              ]
+            }
+          },
+          "rewardRule": {
+            "kind": "percent",
+            "rate": 0.1,
+            "minSpend": 1000
+          },
+          "periodCap": 1250,
+          "rulesComplete": true
+        },
+        {
+          "when": {
+            "attr": {
+              "dim": "wings_tier",
+              "in": [
+                "black_plus"
+              ]
+            }
+          },
+          "rewardRule": {
+            "kind": "percent",
+            "rate": 0.15,
+            "minSpend": 1000
+          },
+          "periodCap": 2500,
+          "rulesComplete": true
+        }
+      ]
     },
     {
       "id": "official-is-restoran-2026q3",
@@ -270,7 +354,131 @@
       "sourceKind": "core_benefit",
       "sourceUrl": "https://www.maximiles.com.tr/kampanyalar/maximiles-black-ile-restoranlarda-20-indirim-ayricaligi",
       "verifiedAt": "2026-09-23T20:30:00+03:00",
-      "termsSummary": "4–7.999,99 TL %10; 8.000 TL+ %20. 4–8 milyon TL segmentinde işlem başına en fazla 3.000 TL, aylık en fazla 8.000 TL."
+      "termsSummary": "4–7.999,99 TL %10; 8.000 TL+ %20. 4–8 milyon TL segmentinde işlem başına en fazla 3.000 TL, aylık en fazla 8.000 TL.",
+      "eligibilitySchemaVersion": 1,
+      "eligibilityRule": {
+        "all": [
+          {
+            "payWith": {
+              "cards": [
+                "is-maximiles-black"
+              ]
+            }
+          },
+          {
+            "attr": {
+              "dim": "maximiles_band",
+              "in": [
+                "band_1",
+                "band_2",
+                "band_3",
+                "band_4"
+              ]
+            }
+          }
+        ]
+      },
+      "rewardVariants": [
+        {
+          "when": {
+            "attr": {
+              "dim": "maximiles_band",
+              "in": [
+                "band_1"
+              ]
+            }
+          },
+          "rewardRule": {
+            "kind": "percent",
+            "rate": 0.05,
+            "minSpend": 4000,
+            "perTransactionCap": 1000
+          },
+          "periodCap": 2000,
+          "rulesComplete": true
+        },
+        {
+          "when": {
+            "attr": {
+              "dim": "maximiles_band",
+              "in": [
+                "band_2"
+              ]
+            }
+          },
+          "rewardRule": {
+            "kind": "tiered_percent",
+            "tiers": [
+              {
+                "min": 4000,
+                "max": 7999.99,
+                "rate": 0.1
+              },
+              {
+                "min": 8000,
+                "rate": 0.2
+              }
+            ],
+            "perTransactionCap": 1750
+          },
+          "periodCap": 4000,
+          "rulesComplete": true
+        },
+        {
+          "when": {
+            "attr": {
+              "dim": "maximiles_band",
+              "in": [
+                "band_3"
+              ]
+            }
+          },
+          "rewardRule": {
+            "kind": "tiered_percent",
+            "tiers": [
+              {
+                "min": 4000,
+                "max": 7999.99,
+                "rate": 0.1
+              },
+              {
+                "min": 8000,
+                "rate": 0.2
+              }
+            ],
+            "perTransactionCap": 3000
+          },
+          "periodCap": 8000,
+          "rulesComplete": true
+        },
+        {
+          "when": {
+            "attr": {
+              "dim": "maximiles_band",
+              "in": [
+                "band_4"
+              ]
+            }
+          },
+          "rewardRule": {
+            "kind": "tiered_percent",
+            "tiers": [
+              {
+                "min": 4000,
+                "max": 7999.99,
+                "rate": 0.1
+              },
+              {
+                "min": 8000,
+                "rate": 0.2
+              }
+            ],
+            "perTransactionCap": 3000
+          },
+          "periodCap": 10000,
+          "rulesComplete": true
+        }
+      ]
     },
     {
       "id": "official-teb-infinite-restoran-ultra",
@@ -363,7 +571,104 @@
       "sourceKind": "core_benefit",
       "sourceUrl": "https://www.teb.com.tr/kart-dunyasi-otel-restoran-indirimi/",
       "verifiedAt": "2026-09-23T20:30:00+03:00",
-      "termsSummary": "Ultra paket TEB Infinite: yurt içinde tek seferde 1.500 TL+ otel/restoran %20; işlem başına en fazla 2.000 TL, aylık en fazla 8.000 TL."
+      "termsSummary": "Ultra paket TEB Infinite: yurt içinde tek seferde 1.500 TL+ otel/restoran %20; işlem başına en fazla 2.000 TL, aylık en fazla 8.000 TL.",
+      "eligibilitySchemaVersion": 1,
+      "eligibilityRule": {
+        "all": [
+          {
+            "payWith": {
+              "cards": [
+                "teb-infinite"
+              ]
+            }
+          },
+          {
+            "attr": {
+              "dim": "teb_tier",
+              "in": [
+                "standard",
+                "plus",
+                "premium",
+                "ultra"
+              ]
+            }
+          }
+        ]
+      },
+      "rewardVariants": [
+        {
+          "when": {
+            "attr": {
+              "dim": "teb_tier",
+              "in": [
+                "standard"
+              ]
+            }
+          },
+          "rewardRule": {
+            "kind": "percent",
+            "rate": 0.05,
+            "minSpend": 1500,
+            "perTransactionCap": 75
+          },
+          "periodCap": 250,
+          "rulesComplete": true
+        },
+        {
+          "when": {
+            "attr": {
+              "dim": "teb_tier",
+              "in": [
+                "plus"
+              ]
+            }
+          },
+          "rewardRule": {
+            "kind": "percent",
+            "rate": 0.1,
+            "minSpend": 1500,
+            "perTransactionCap": 500
+          },
+          "periodCap": 2500,
+          "rulesComplete": true
+        },
+        {
+          "when": {
+            "attr": {
+              "dim": "teb_tier",
+              "in": [
+                "premium"
+              ]
+            }
+          },
+          "rewardRule": {
+            "kind": "percent",
+            "rate": 0.15,
+            "minSpend": 1500,
+            "perTransactionCap": 1000
+          },
+          "periodCap": 4000,
+          "rulesComplete": true
+        },
+        {
+          "when": {
+            "attr": {
+              "dim": "teb_tier",
+              "in": [
+                "ultra"
+              ]
+            }
+          },
+          "rewardRule": {
+            "kind": "percent",
+            "rate": 0.2,
+            "minSpend": 1500,
+            "perTransactionCap": 2000
+          },
+          "periodCap": 8000,
+          "rulesComplete": true
+        }
+      ]
     },
     {
       "id": "official-ykb-crystal-restoran-2026-09",
@@ -495,6 +800,250 @@
   "meta": {
     "campaign_count": 5,
     "bootstrap": true,
-    "partial": false
+    "partial": false,
+    "eligibilityDualWrite": {
+      "translated": 4,
+      "legacy_only": 1
+    },
+    "sourceRegistry": [
+      {
+        "sourceCode": "qnb_ms",
+        "bankCode": "qnb",
+        "bank": "QNB",
+        "url": "https://milesandsmilesqnb.com.tr/kampanyalar",
+        "sourceType": "official_campaign_listing",
+        "adapter": "generic_html_v1",
+        "enabled": true,
+        "cadence": "scheduled_twice_daily",
+        "priority": 20,
+        "lastCrawlAt": null,
+        "lastSuccessAt": null,
+        "lastVerifiedAt": null,
+        "freshCount": 0,
+        "health": "never_run",
+        "sourceVerifiedAt": null
+      },
+      {
+        "sourceCode": "qnb_private",
+        "bankCode": "qnb",
+        "bank": "QNB",
+        "url": "https://www.qnb.com.tr/private/private-ayricaliklar",
+        "sourceType": "official_campaign_listing",
+        "adapter": "generic_html_v1",
+        "enabled": true,
+        "cadence": "scheduled_twice_daily",
+        "priority": 30,
+        "lastCrawlAt": null,
+        "lastSuccessAt": null,
+        "lastVerifiedAt": null,
+        "freshCount": 0,
+        "health": "never_run",
+        "sourceVerifiedAt": null
+      },
+      {
+        "sourceCode": "qnb_card",
+        "bankCode": "qnb",
+        "bank": "QNB",
+        "url": "https://www.qnbcard.com.tr/kampanyalar",
+        "sourceType": "official_campaign_listing",
+        "adapter": "generic_html_v1",
+        "enabled": true,
+        "cadence": "scheduled_twice_daily",
+        "priority": 10,
+        "lastCrawlAt": null,
+        "lastSuccessAt": null,
+        "lastVerifiedAt": null,
+        "freshCount": 0,
+        "health": "never_run",
+        "sourceVerifiedAt": null
+      },
+      {
+        "sourceCode": "wings",
+        "bankCode": "akbank",
+        "bank": "Akbank",
+        "url": "https://www.wingscard.com.tr/kampanyalar",
+        "sourceType": "official_campaign_listing",
+        "adapter": "generic_html_v1",
+        "enabled": true,
+        "cadence": "scheduled_twice_daily",
+        "priority": 10,
+        "lastCrawlAt": null,
+        "lastSuccessAt": null,
+        "lastVerifiedAt": null,
+        "freshCount": 0,
+        "health": "never_run",
+        "sourceVerifiedAt": null
+      },
+      {
+        "sourceCode": "axess_general",
+        "bankCode": "akbank",
+        "bank": "Akbank",
+        "url": "https://www.axess.com.tr/axess/kampanyalar",
+        "sourceType": "official_campaign_listing",
+        "adapter": "generic_html_v1",
+        "enabled": true,
+        "cadence": "scheduled_twice_daily",
+        "priority": 20,
+        "lastCrawlAt": null,
+        "lastSuccessAt": null,
+        "lastVerifiedAt": null,
+        "freshCount": 0,
+        "health": "never_run",
+        "sourceVerifiedAt": null
+      },
+      {
+        "sourceCode": "maximiles",
+        "bankCode": "isbank",
+        "bank": "İş Bankası",
+        "url": "https://www.maximiles.com.tr/kampanyalar/tum-kampanyalar",
+        "sourceType": "official_campaign_listing",
+        "adapter": "generic_html_v1",
+        "enabled": true,
+        "cadence": "scheduled_twice_daily",
+        "priority": 10,
+        "lastCrawlAt": null,
+        "lastSuccessAt": null,
+        "lastVerifiedAt": null,
+        "freshCount": 0,
+        "health": "never_run",
+        "sourceVerifiedAt": null
+      },
+      {
+        "sourceCode": "world",
+        "bankCode": "ykb",
+        "bank": "Yapı Kredi",
+        "url": "https://www.worldcard.com.tr/kampanya",
+        "sourceType": "official_campaign_listing",
+        "adapter": "generic_html_v1",
+        "enabled": true,
+        "cadence": "scheduled_twice_daily",
+        "priority": 20,
+        "lastCrawlAt": null,
+        "lastSuccessAt": null,
+        "lastVerifiedAt": null,
+        "freshCount": 0,
+        "health": "never_run",
+        "sourceVerifiedAt": null
+      },
+      {
+        "sourceCode": "crystal_special",
+        "bankCode": "ykb",
+        "bank": "Yapı Kredi",
+        "url": "https://www.yapikredi.com.tr/bireysel-bankacilik/kartlar/otel-restoran-indirimleri",
+        "sourceType": "official_campaign_listing",
+        "adapter": "generic_html_v1",
+        "enabled": true,
+        "cadence": "scheduled_twice_daily",
+        "priority": 10,
+        "lastCrawlAt": null,
+        "lastSuccessAt": null,
+        "lastVerifiedAt": null,
+        "freshCount": 0,
+        "health": "never_run",
+        "sourceVerifiedAt": null
+      },
+      {
+        "sourceCode": "teb",
+        "bankCode": "teb",
+        "bank": "TEB",
+        "url": "https://www.teb.com.tr/kart-dunyasi/",
+        "sourceType": "official_campaign_listing",
+        "adapter": "generic_html_v1",
+        "enabled": true,
+        "cadence": "scheduled_twice_daily",
+        "priority": 10,
+        "lastCrawlAt": null,
+        "lastSuccessAt": null,
+        "lastVerifiedAt": null,
+        "freshCount": 0,
+        "health": "never_run",
+        "sourceVerifiedAt": null
+      },
+      {
+        "sourceCode": "teb_general",
+        "bankCode": "teb",
+        "bank": "TEB",
+        "url": "https://www.teb.com.tr/sizin-icin/kampanyalar/?cat=Kredi+Kartı",
+        "sourceType": "official_campaign_listing",
+        "adapter": "generic_html_v1",
+        "enabled": true,
+        "cadence": "scheduled_twice_daily",
+        "priority": 20,
+        "lastCrawlAt": null,
+        "lastSuccessAt": null,
+        "lastVerifiedAt": null,
+        "freshCount": 0,
+        "health": "never_run",
+        "sourceVerifiedAt": null
+      },
+      {
+        "sourceCode": "garanti_bonus",
+        "bankCode": "garanti",
+        "bank": "Garanti BBVA",
+        "url": "https://www.bonus.com.tr/kampanyalar",
+        "sourceType": "official_campaign_listing",
+        "adapter": null,
+        "enabled": false,
+        "cadence": "scheduled_twice_daily",
+        "priority": 10,
+        "lastCrawlAt": null,
+        "lastSuccessAt": null,
+        "lastVerifiedAt": null,
+        "freshCount": 0,
+        "health": "disabled",
+        "sourceVerifiedAt": "2026-10-04T00:00:00Z"
+      },
+      {
+        "sourceCode": "ziraat_bankkart",
+        "bankCode": "ziraat",
+        "bank": "Ziraat Bankası",
+        "url": "https://www.bankkart.com.tr/kampanyalar",
+        "sourceType": "official_campaign_listing",
+        "adapter": null,
+        "enabled": false,
+        "cadence": "scheduled_twice_daily",
+        "priority": 10,
+        "lastCrawlAt": null,
+        "lastSuccessAt": null,
+        "lastVerifiedAt": null,
+        "freshCount": 0,
+        "health": "disabled",
+        "sourceVerifiedAt": "2026-10-04T00:00:00Z"
+      },
+      {
+        "sourceCode": "halkbank_paraf",
+        "bankCode": "halkbank",
+        "bank": "Halkbank",
+        "url": "https://www.paraf.com.tr/tr/kampanyalar.html",
+        "sourceType": "official_campaign_listing",
+        "adapter": null,
+        "enabled": false,
+        "cadence": "scheduled_twice_daily",
+        "priority": 10,
+        "lastCrawlAt": null,
+        "lastSuccessAt": null,
+        "lastVerifiedAt": null,
+        "freshCount": 0,
+        "health": "disabled",
+        "sourceVerifiedAt": "2026-10-04T00:00:00Z"
+      },
+      {
+        "sourceCode": "vakifbank_vakifkart",
+        "bankCode": "vakifbank",
+        "bank": "VakıfBank",
+        "url": "https://www.vakifkart.com.tr/kampanyalar",
+        "sourceType": "official_campaign_listing",
+        "adapter": null,
+        "enabled": false,
+        "cadence": "scheduled_twice_daily",
+        "priority": 10,
+        "lastCrawlAt": null,
+        "lastSuccessAt": null,
+        "lastVerifiedAt": null,
+        "freshCount": 0,
+        "health": "disabled",
+        "sourceVerifiedAt": "2026-10-04T00:00:00Z"
+      }
+    ]
   }
 }

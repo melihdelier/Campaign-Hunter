@@ -6,11 +6,24 @@ export class SchemaMissingError extends Error {
   constructor(msg = 'Profil tabloları bulunamadı (migration 008–010 uygulanmamış).') { super(msg); this.name = 'SchemaMissingError'; }
 }
 
+import { PROFILE_CARD_PROGRAMS, BANK_COVERAGE, CARD_ELIGIBILITY_FAMILIES } from './profile-catalog.js';
+
+// v1.5.0: migration 011'in (kart programları, kapsam, program_code) henüz uygulanmadığı veritabanında da çalışır
+// (expand/contract): eksik tablo/kolon → paketli ana veriye düşülür, profil yine yüklenir.
+function isOptionalMissing(err) {
+  const code = err?.body?.code || '';
+  return err instanceof SchemaMissingError || ['42703', 'PGRST204', 'PGRST200'].includes(code) || (err?.status === 400 && /column|does not exist/i.test(String(err?.body?.message || '')));
+}
+
 function isSchemaMissing(status, body) {
   const code = body?.code || '';
   const msg = String(body?.message || '');
   return code === 'PGRST205' || code === '42P01' || code === 'PGRST202' || (status === 404 && /relation|table|schema cache/i.test(msg));
 }
+
+import { PROFILE_CARD_PRODUCTS } from './profile-catalog.js';
+import { bankRequestPayload } from './bank-requests.js';
+const PROFILE_CARD_PROGRAMS_BY_PRODUCT = new Map(PROFILE_CARD_PRODUCTS.map(p => [p.code, p.programCode ?? null]));
 
 export function createProfileStore({ fetchImpl, baseUrl, apiKey, getAccessToken }) {
   const url = String(baseUrl || '').replace(/\/+$/, '');
@@ -31,25 +44,41 @@ export function createProfileStore({ fetchImpl, baseUrl, apiKey, getAccessToken 
     return json;
   }
 
+  async function optional(path) {
+    try { return await req(path); } catch (e) { if (isOptionalMissing(e)) return null; throw e; }
+  }
+
   // Ana veri (global). Yazma için gereken uuid ↔ kod eşlemesini de döndürür.
   async function loadMaster() {
     // v1.4.3: seçenek ölçütleri (migration 010). Tablo yoksa SchemaMissingError → uygulama eski moda düşer;
     // eşik kodlu eski seçeneklerle nötr kodlu istemci karıştırılmaz.
-    const [banks, cards, dims, dimCards, options, criteria] = await Promise.all([
+    const [banks, cards, dims, dimCards, options, criteria, programs, coverage, productPrograms] = await Promise.all([
       req('banks?select=id,code,name,sort_order,active&order=sort_order.asc'),
       req('card_products?select=id,code,name,family,sort_order,active,bank_id&order=sort_order.asc'),
       req('profile_dimensions?select=code,label,kind,bank_id,engine_binding,setting_key,sort_order,active&order=sort_order.asc'),
       req('profile_dimension_cards?select=dimension_code,card_product_id'),
       req('profile_dimension_options?select=dimension_code,code,label,engine_label,sort_order,active&order=sort_order.asc'),
       req('profile_option_criteria?select=dimension_code,option_code,criteria_version,effective_from,effective_to,display_label,lower_bound,upper_bound,bound_unit,source_url,source_reference,verified_at&order=dimension_code.asc,criteria_version.asc,option_code.asc'),
+      optional('card_programs?select=code,bank_id,name,source_url,verified_at,sort_order,active&order=sort_order.asc'),
+      optional('bank_coverage?select=bank_id,card_products,profile_dimensions,core_benefits,campaigns,note'),
+      optional('card_products?select=code,program_code'),
     ]);
     const bankById = new Map(banks.map(b => [b.id, b]));
     const cardById = new Map(cards.map(c => [c.id, c]));
     const catalog = {
       source: 'supabase',
-      schema: 2,
+      schema: programs && coverage && productPrograms ? 3 : 2,
       banks: banks.filter(b => b.active !== false).map(b => ({ code: b.code, name: b.name, sortOrder: b.sort_order })),
-      cardProducts: cards.filter(c => c.active !== false).map(c => ({ code: c.code, bankCode: bankById.get(c.bank_id)?.code, name: c.name, family: c.family, sortOrder: c.sort_order })),
+      cardProducts: cards.filter(c => c.active !== false).map(c => ({ code: c.code, bankCode: bankById.get(c.bank_id)?.code, name: c.name, family: c.family, sortOrder: c.sort_order,
+        programCode: productPrograms ? (productPrograms.find(x => x.code === c.code)?.program_code ?? null) : (PROFILE_CARD_PROGRAMS_BY_PRODUCT.get(c.code) ?? null) })),
+      cardPrograms: programs
+        ? programs.filter(p => p.active !== false).map(p => ({ code: p.code, bankCode: bankById.get(p.bank_id)?.code, name: p.name, sourceUrl: p.source_url, verifiedAt: p.verified_at ?? null, sortOrder: p.sort_order }))
+        : PROFILE_CARD_PROGRAMS.filter(p => banks.some(b => b.code === p.bankCode)),
+      // Uygunluk aileleri sürümlü ana veridir (paketli; ayrı tablo yok — migration gerekmez). Bilinmeyen üye kodları etkisizdir.
+      cardFamilies: CARD_ELIGIBILITY_FAMILIES.filter(f => banks.some(b => b.code === f.bankCode)),
+      bankCoverage: coverage
+        ? coverage.map(r => ({ bankCode: bankById.get(r.bank_id)?.code, cardProducts: r.card_products, profileDimensions: r.profile_dimensions, coreBenefits: r.core_benefits, campaigns: r.campaigns, note: r.note ?? null })).filter(r => r.bankCode)
+        : BANK_COVERAGE.filter(c => banks.some(b => b.code === c.bankCode)),
       dimensions: dims.filter(d => d.active !== false).map(d => ({
         code: d.code, label: d.label, kind: d.kind, bankCode: bankById.get(d.bank_id)?.code || null,
         engineBinding: d.engine_binding, settingKey: d.setting_key, sortOrder: d.sort_order,
@@ -114,7 +143,15 @@ export function createProfileStore({ fetchImpl, baseUrl, apiKey, getAccessToken 
     return true;
   }
 
-  return { loadMaster, loadProfile, saveProfile };
+  // v1.5.0: "Bankam listede yok" — kullanıcının kendi destek isteği (RLS: yalnız kendi satırı). Aynı banka için
+  // tekrar istek çift kayıt oluşturmaz (unique user_id + normalized_key). Kanonik ana veriye yazılmaz.
+  async function requestBankSupport(userId, name, note = null) {
+    await req('bank_support_requests?on_conflict=user_id,normalized_key', { method: 'POST', prefer: 'resolution=ignore-duplicates,return=minimal',
+      body: bankRequestPayload(userId, name, note) });
+    return true;
+  }
+
+  return { loadMaster, loadProfile, saveProfile, requestBankSupport };
 }
 
 // Cihazdaki profil önbelleği (hızlı açılış / çevrimdışı). Kullanıcı kimliğine göre ayrılır.

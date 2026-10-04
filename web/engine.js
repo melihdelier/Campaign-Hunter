@@ -1,5 +1,5 @@
 import { trDay, trMonthKey, toTrDay } from './tr-time.js';
-import { evaluateCampaignForCard, campaignTargetsCard, buildEligibilityContext } from './eligibility.js';
+import { evaluateCampaignForCard, campaignTargetsCard, buildEligibilityContext, resolveCampaignEligibility, selectRewardVariant } from './eligibility.js';
 
 export function money(value) {
   if (value === null || value === undefined || Number.isNaN(Number(value))) return 'Bilinmiyor';
@@ -183,12 +183,11 @@ export function resolveMerchantInput(campaigns, merchant, selectedCategory) {
     // Yalnızca güvenilir yerel işyeri sözlüğü tek bir kategori söylüyorsa açık bir çelişkiyi düzelt.
     // Yalnız birebir (normalize edilmiş) alias eşleşmesi manuel seçimi düzeltebilir. Alt dize / bulanık eşleşme
     // (ör. "Amazon Prime Video" ⊃ "Amazon") farklı bir hizmet olabilir; manuel seçim korunur, yalnız uyarı verilir.
-    if (context.source === 'registry' && context.exactAlias === true && context.categories.length === 1 && !context.categories.includes(selectedCategory)) {
-      effectiveCategory = context.categories[0];
-      notices.push(`Kategori uyuşmazlığı: “${context.canonicalName}” güvenilir işyeri sözlüğünde “${effectiveCategory}” olarak tanınıyor. “${selectedCategory}” yerine “${effectiveCategory}” kullanıldı.`);
-    } else if (context.source === 'registry' && context.categories.length === 1 && !context.categories.includes(selectedCategory)) {
+    // v1.5.0: MANUEL KATEGORİ YETKİLİDİR. İşyeri çıkarımı yalnız "Kategori: Otomatik" seçiliyken kategoriyi belirler;
+    // manuel seçimde yalnız bilgi notu verilir, kategori asla değiştirilmez.
+    if (context.source === 'registry' && context.categories.length === 1 && !context.categories.includes(selectedCategory)) {
       effectiveCategory = selectedCategory;
-      notices.push(`“${merchant}” işyeri sözlüğündeki “${context.canonicalName}” (${context.categories[0]}) kaydına benziyor fakat birebir eşleşmiyor; manuel kategori “${selectedCategory}” korundu.`);
+      notices.push(`“${context.canonicalName}” işyeri sözlüğünde “${context.categories[0]}” kategorisinde; seçtiğin “${selectedCategory}” kategorisi kullanıldı.`);
     } else {
       effectiveCategory = selectedCategory;
       if (context.categories.length > 1 && !context.categories.includes(selectedCategory)) {
@@ -271,8 +270,51 @@ export function resolveValidityPeriod(campaign, now = new Date()) {
   return out;
 }
 
-export function resolveSegmentCampaign(campaign, card, now = new Date()) {
+// v1.5.0: Ödül kademesi. Geçerli (şema v1) `rewardVariants` taşıyan kayıtta kademe YALNIZ varyantlardan seçilir
+// (eski segmentRules yok sayılır; o alan yalnız eski istemciler içindir). Kurallar (eligibility.js selectRewardVariant):
+//   ilk kesin-true varyant = GERÇEK ödül; false atlanır; bilinmeyen (null) yalnız koşullu bilgi olarak taşınır;
+//   garantili taban yalnız açık `{always:true}` varyantından gelir; kampanyanın taban rewardRule'u ÖRTÜK YEDEK DEĞİLDİR.
+// Hiç gerçek varyant yoksa ödül "bilinmiyor" (kind: 'unknown') olur → Hangi Kart? sıralamasına tutar olarak GİRMEZ.
+// Kampanyalar ve Hangi Kart? bu fonksiyonu aynı bağlamla (eligibilityContext) kullanır — tek ödül gerçeği.
+const VARIANT_UNRESOLVED_WARNING = 'Ödül oranı profil bilgine bağlı; ilgili segment/kademe seçilmediği için kesin tutar hesaplanmadı.';
+
+function resolveRewardVariantCampaign(campaign, card, eligibilityContext) {
+  const ctx = eligibilityContext || buildEligibilityContext({ cards: card ? [card] : [] });
+  const sel = selectRewardVariant(campaign.rewardVariants, ctx, card);
+  const conditionalRewards = sel.conditional.map(({ index, variant, reasons }) => ({
+    index, rewardRule: variant.rewardRule || null, periodCap: variant.periodCap ?? null, reasons,
+  }));
+  if (sel.actual) {
+    const { when, ...variant } = sel.actual.variant; // eslint-disable-line no-unused-vars
+    return {
+      ...campaign,
+      ...variant,
+      id: campaign.id, title: campaign.title, bank: campaign.bank, sourceUrl: campaign.sourceUrl, sourceKind: campaign.sourceKind,
+      eligibilitySchemaVersion: campaign.eligibilitySchemaVersion, eligibilityRule: campaign.eligibilityRule, rewardVariants: campaign.rewardVariants,
+      eligibility: campaign.eligibility, cardProductIds: campaign.cardProductIds,
+      rewardRule: variant.rewardRule || campaign.rewardRule,
+      transactionRules: { ...(campaign.transactionRules || {}), ...(variant.transactionRules || {}) },
+      decisionWarnings: [...new Set([...(campaign.decisionWarnings || []), ...(variant.decisionWarnings || [])])],
+      activeRewardVariant: sel.actual.index,
+      conditionalRewards,
+    };
+  }
+  return {
+    ...campaign,
+    rewardRule: { kind: 'unknown' },
+    periodCap: null,
+    rewardVariantUnresolved: true,
+    activeRewardVariant: null,
+    conditionalRewards,
+    decisionWarnings: [...new Set([...(campaign.decisionWarnings || []), VARIANT_UNRESOLVED_WARNING])],
+  };
+}
+
+export function resolveSegmentCampaign(campaign, card, now = new Date(), eligibilityContext = null) {
   campaign = resolveValidityPeriod(campaign, now);
+  if (Array.isArray(campaign.rewardVariants) && resolveCampaignEligibility(campaign).status === 'valid') {
+    return resolveRewardVariantCampaign(campaign, card, eligibilityContext);
+  }
   const rules = campaign.segmentRules;
   if (!rules || typeof rules !== 'object' || Array.isArray(rules)) return campaign;
   const entry = Object.entries(rules).find(([label]) => norm(label) === norm(card.segment));
@@ -294,11 +336,38 @@ export function resolveSegmentCampaign(campaign, card, now = new Date()) {
   };
 }
 
+// v1.5.0 — İşyeri kapsam sınıfı (işyeri girilmeden yapılan kategori sorgusunda davranışı belirler):
+//   category  kategori genelinde geçerli → normal hesap
+//   network   üye/anlaşmalı işyerleri ağı (liste uzun ya da şube teyidi gerekir) → KOŞULLU sonuç, garanti değil
+//   brand     belirli marka(lar)a özel (ör. Index) → kesin kazanan olamaz; "işyeri özel fırsatlar" bölümü
+//   exact     yalnız birebir işyeri → kesin uygulanmaz
+// Kayıt açık `merchantScope.scopeType` taşıyorsa o kullanılır.
+export const NETWORK_MERCHANT_WARNING = 'Bu avantaj ilgili üye işyerinde geçerlidir; işyerinin kampanyaya dahil olduğunu doğrula.';
+export const BRAND_MERCHANT_NOTE = 'Bu kampanya belirli işyerlerine özel; işyeri girilmediği için kesin uygulanmaz.';
+export function merchantScopeClass(campaign) {
+  const s = campaign?.merchantScope || { kind: 'all' };
+  if (['category', 'network', 'brand', 'exact'].includes(s.scopeType)) return s.scopeType;
+  if (s.kind === 'all') return 'category';
+  if (s.kind === 'exact') return 'exact';
+  if (s.kind === 'restricted_unknown') return 'network';
+  if (s.kind === 'contains') {
+    const n = (s.values || []).filter(Boolean).length;
+    return (s.requiresBranchConfirmation || n > 3 || n === 0) ? 'network' : 'brand';
+  }
+  return 'exact';
+}
+
 export function merchantMatch(campaign, merchant) {
   const scope = campaign.merchantScope || { kind: 'all' };
   const value = norm(merchant);
   if (scope.kind === 'all') return { matched: true, verified: true, warning: null, canonicalName: null, fuzzy: false };
-  if (!value) return { matched: false, verified: false, warning: 'İşyeri adı girilmedi.', canonicalName: null, fuzzy: false };
+  if (!value) {
+    // Kategori sorgusu (işyeri boş) birinci sınıf bir sorgudur; "işyeri girilmedi" sert engeli YOKTUR.
+    const cls = merchantScopeClass(campaign);
+    if (cls === 'category') return { matched: true, verified: true, warning: null, canonicalName: null, fuzzy: false, scopeClass: cls };
+    if (cls === 'network') return { matched: true, verified: false, conditional: true, warning: NETWORK_MERCHANT_WARNING, canonicalName: null, fuzzy: false, scopeClass: cls };
+    return { matched: false, verified: false, merchantSpecific: true, warning: BRAND_MERCHANT_NOTE, canonicalName: null, fuzzy: false, scopeClass: cls };
+  }
 
   const excludedMatch = bestExcludedMerchantCandidate(merchant, scope.excludedValues || []);
   if (excludedMatch) return { matched: false, verified: true, warning: 'Bu işyeri/şube kampanya dışında.', canonicalName: excludedMatch.value, fuzzy: excludedMatch.score < 1 };
@@ -323,6 +392,8 @@ export function merchantMatch(campaign, merchant) {
     return { matched: matchedByName, verified: matchedByName && !fuzzy, warning: matchedByName ? (fuzzyNote.trim() || null) : 'İşyeri kampanya listesinde değil.', canonicalName: best?.value || null, fuzzy };
   }
   if (scope.kind === 'restricted_unknown') {
+    // Açık üye/anlaşmalı işyeri ağı: girilen işyerinin ağa dahil olduğu doğrulanamaz → koşullu.
+    if (scope.scopeType === 'network') return { matched: true, verified: false, conditional: true, warning: NETWORK_MERCHANT_WARNING, canonicalName: null, fuzzy: false, scopeClass: 'network' };
     return { matched: true, verified: false, warning: 'Kampanya sadece seçili işyerlerinde geçerli; işyeri listesi henüz tam doğrulanmadı.', canonicalName: null, fuzzy: false };
   }
   return { matched: false, verified: false, warning: 'İşyeri kapsamı tanınmıyor.', canonicalName: null, fuzzy: false };
@@ -403,7 +474,8 @@ export function inspectCampaign({ campaign, card, merchant, category, amount, lo
   if (!categoryMatches(campaign, category)) blockers.push(blocker('category', 'Harcama kategorisi kampanya kapsamına uymuyor.', 'hard'));
 
   const m = merchantMatch(campaign, merchant);
-  if (!m.matched) blockers.push(blocker('merchant', m.warning || 'İşyeri kampanya kapsamına uymuyor.', 'hard'));
+  if (!m.matched && m.merchantSpecific) blockers.push(blocker('merchant_specific', m.warning, 'info'));
+  else if (!m.matched) blockers.push(blocker('merchant', m.warning || 'İşyeri kampanya kapsamına uymuyor.', 'hard'));
   else if (!m.verified && m.warning) warnings.push(m.warning);
 
   const rule = campaign.rewardRule || {};
@@ -425,10 +497,12 @@ export function inspectCampaign({ campaign, card, merchant, category, amount, lo
   }
 
   if (tx.cumulativeSpendCampaign) warnings.push('Bu kampanya tek işlem değil, dönem içi toplam harcamaya bağlı; birikmiş harcaman doğrulanmalı.');
-  if (tx.location === 'domestic' && locationScope !== 'domestic') blockers.push(blocker('location', 'Kampanya yalnızca yurt içi işlemlerde geçerli.', 'actionable'));
-  if (tx.location === 'international' && locationScope !== 'international') blockers.push(blocker('location', 'Kampanya yalnızca yurt dışı işlemlerde geçerli.', 'actionable'));
+  // v1.5.0: işlem yeri ve kanalı aynı işlem bağlamında kullanıcının ayarlayabileceği eşikler DEĞİLDİR → sert uyumsuzluk.
+  // "Potansiyel" yalnız aynı bağlamda ayarlanabilir eşikler içindir (alt/üst tutar).
+  if (tx.location === 'domestic' && locationScope !== 'domestic') blockers.push(blocker('location', 'Kampanya yalnızca yurt içi işlemlerde geçerli.', 'hard'));
+  if (tx.location === 'international' && locationScope !== 'international') blockers.push(blocker('location', 'Kampanya yalnızca yurt dışı işlemlerde geçerli.', 'hard'));
   if (Array.isArray(tx.allowedChannels) && tx.allowedChannels.length && !tx.allowedChannels.includes(paymentChannel)) {
-    blockers.push(blocker('channel', `Ödeme kanalı uygun değil; geçerli kanal(lar): ${tx.allowedChannels.join(', ')}.`, 'actionable'));
+    blockers.push(blocker('channel', `Ödeme kanalı uygun değil; geçerli kanal(lar): ${tx.allowedChannels.join(', ')}.`, 'hard'));
   }
   if (Array.isArray(tx.excludedCategories) && tx.excludedCategories.length) warnings.push(`Hariç işlemler: ${tx.excludedCategories.join(', ')}.`);
   if (tx.requiredPos) warnings.push(`${tx.requiredPos} üzerinden işlem şartı var.`);
@@ -448,7 +522,8 @@ export function inspectCampaign({ campaign, card, merchant, category, amount, lo
     reasons: blockers.map(x => x.message),
     blockers,
     warnings,
-    merchant: m
+    merchant: m,
+    merchantConditional: Boolean(m.conditional)
   };
 }
 
@@ -585,7 +660,7 @@ export function applyCombinedCustomerCaps(campaign, card) {
 }
 
 export function evaluateCampaign({ campaign, state, card, merchant, category, amount, locationScope = 'domestic', paymentChannel = 'physical', now = new Date(), staleAfterDays = 3, eligibilityContext = null }) {
-  campaign = applyCombinedCustomerCaps(resolveSegmentCampaign(campaign, card, now), card);
+  campaign = applyCombinedCustomerCaps(resolveSegmentCampaign(campaign, card, now, eligibilityContext), card);
   const inspection = inspectCampaign({ campaign, card, merchant, category, amount, locationScope, paymentChannel, now, eligibilityContext });
   const normalizedState = ensureReset(campaign, state, now);
 
@@ -601,7 +676,15 @@ export function evaluateCampaign({ campaign, state, card, merchant, category, am
   if (!inspection.eligible) {
     const hardBlockers = inspection.blockers.filter(b => b.kind === 'hard');
     const actionableBlockers = inspection.blockers.filter(b => b.kind === 'actionable');
-    const potential = hardBlockers.length === 0 && actionableBlockers.length > 0;
+    const infoBlockers = inspection.blockers.filter(b => b.kind === 'info');
+    // İşyerine özel kampanya (işyeri girilmedi): kesin kazanan olamaz; ayrı "işyeri özel fırsatlar" bölümünde gösterilir.
+    if (hardBlockers.length === 0 && infoBlockers.some(b => b.code === 'merchant_specific')) {
+      const ruleKind = campaign.rewardRule?.kind || 'unknown';
+      const computable = campaign.rulesComplete !== false && !['unknown', 'non_cash'].includes(ruleKind) && actionableBlockers.length === 0;
+      return { campaign, eligible: false, potential: false, merchantSpecific: true, inspection, state: normalizedState,
+        actionableBlockers, hardBlockers, rewardIfMerchantMatches: computable ? calcCappedTheoreticalReward(campaign, amount).reward : null };
+    }
+    const potential = hardBlockers.length === 0 && infoBlockers.length === 0 && actionableBlockers.length > 0;
     const minBlock = actionableBlockers.find(b => b.code === 'min_spend');
     const rewardAtThreshold = minBlock ? calcCappedTheoreticalReward(campaign, minBlock.requiredAmount).reward : 0;
     return {
@@ -642,18 +725,22 @@ export function evaluateCampaign({ campaign, state, card, merchant, category, am
   if (capped.periodCapApplied) extraWarnings.push(`İşlem bazlı hesap ${capped.perTransaction.toLocaleString('tr-TR', { maximumFractionDigits: 2 })} olurdu; dönem tavanı ${Number(campaign.periodCap).toLocaleString('tr-TR', { maximumFractionDigits: 2 })} ile sınırlandı.`);
   if (!rawRemainingKnown) extraWarnings.push('Kalan dönem hakkı bilinmiyor; gösterilen değer dönem tavanıyla sınırlı teorik üst sınırdır. Bankadaki kalan hakkı doğrula.');
   if (rawRemainingKnown && freshnessInfo.status === 'stale') extraWarnings.push(`Kalan limit bilgisi eski (${freshnessInfo.label}); bankadaki güncel kalan hakkı doğrulamadan kesin kazanç hesaplanamaz.`);
-  const conditional = inspection.warnings.length > 0 || campaign.rulesComplete === false || progressUnknown || freshnessInfo.status === 'stale';
+  const conditional = inspection.warnings.length > 0 || campaign.rulesComplete === false || progressUnknown || freshnessInfo.status === 'stale' || Boolean(inspection.merchantConditional);
 
   return {
     campaign,
     eligible: true,
     potential: false,
+    // Koşullu (bilinmeyen profil özniteliğine bağlı) daha yüksek kademeler: yalnız bilgi; tutara/sıralamaya KATILMAZ.
+    conditionalRewards: campaign.conditionalRewards || [],
     inspection: { ...inspection, warnings: [...inspection.warnings, ...extraWarnings] },
     state: normalizedState,
     theoreticalReward: theoretical,
     perTransactionReward: capped.perTransaction,
     periodCapApplied: capped.periodCapApplied,
     actualReward: actual,
+    // İşyeri girilmeden üye işyeri ağına bağlı sonuç: garanti değil; kesin kazanan (best) olamaz.
+    merchantConditional: Boolean(inspection.merchantConditional),
     remainingKnown,
     enrollmentMissing,
     progress,
@@ -682,7 +769,7 @@ export function recommend({ cards, campaigns, states, merchant, category, amount
       }));
 
     const evaluations = allInspections
-      .filter(e => e.eligible)
+      .filter(e => e.eligible && !e.merchantConditional)
       .sort((a, b) => {
         const ar = a.actualReward === null ? a.theoreticalReward : a.actualReward;
         const br = b.actualReward === null ? b.theoreticalReward : b.actualReward;
@@ -699,9 +786,13 @@ export function recommend({ cards, campaigns, states, merchant, category, amount
       });
 
     const informational = allInspections.filter(e => e.informational);
+    const merchantConditional = allInspections.filter(e => e.eligible && e.merchantConditional)
+      .sort((a, b) => (b.theoreticalReward || 0) - (a.theoreticalReward || 0));
+    const merchantSpecific = allInspections.filter(e => e.merchantSpecific)
+      .sort((a, b) => (b.rewardIfMerchantMatches || 0) - (a.rewardIfMerchantMatches || 0));
     const best = evaluations.find(e => !e.enrollmentMissing) || evaluations[0] || null;
-    const rejected = allInspections.filter(e => !e.eligible && !e.potential && !e.informational);
-    return { card, best, all: evaluations, potentials, informational, rejected };
+    const rejected = allInspections.filter(e => !e.eligible && !e.potential && !e.informational && !e.merchantSpecific);
+    return { card, best, all: evaluations, potentials, informational, merchantConditional, merchantSpecific, rejected };
   }).sort((a, b) => {
     const score = x => {
       if (!x.best) return x.potentials?.length ? -0.25 : -1;

@@ -1,6 +1,27 @@
 // Info ekranı: sürüm/build/katalog durumu ve sürüm notları tek yerde.
 export const RELEASE_NOTES = [
   {
+    version: 'v1.5.0',
+    date: '2026-10',
+    items: [
+      'Garanti BBVA, Ziraat Bankası, Halkbank, VakıfBank ve DenizBank banka listesine eklendi; kart ve kampanya desteği hazırlanıyor ve her bankanın destek durumu açıkça gösteriliyor.',
+      'Bankan listede yoksa “Bankam listede yok” ile istekte bulunabilirsin.',
+      'Segmente göre değişen kampanyalarda yalnız kesin uyan oran hesaplanır; segmentini seçersen olası daha yüksek oran ayrıca gösterilir.',
+      'QNB Terminal Kadıköy kampanyası resmi koşullarına göre güncellendi: QNB kredi kartları %10, First Plus %15, Private %20.',
+      'Wings ve TEB kademeleri sade adlarıyla gösterilir (ör. Black Plus, Ultra).',
+      'Uygulama Bilgisi ekranında banka ve kampanya kapsamı tablosu.',
+    ],
+  },
+  {
+    version: 'v1.4.4',
+    date: '2026-10',
+    items: [
+      'Kayıt doğrulama e-postasındaki bağlantı artık doğrudan Kampanya Avcısı’nı açar (önceden GitHub Pages ana sayfasında 404 görünüyordu).',
+      'Doğrulama ve şifre sıfırlama bağlantıları oturumu doğru kurar; süresi dolmuş bağlantıda anlaşılır bir giriş mesajı gösterilir.',
+      'Şifre sıfırlama da aynı uygulama adresine döner.',
+    ],
+  },
+  {
     version: 'v1.4.3',
     date: '2026-10',
     items: [
