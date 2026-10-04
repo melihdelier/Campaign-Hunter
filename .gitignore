@@ -1,0 +1,5 @@
+node_modules/
+__pycache__/
+server/data/catalog*.json
+server/data/refresh_status.json
+server/data/refresh.lock

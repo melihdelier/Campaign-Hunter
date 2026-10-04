@@ -1,5 +1,8 @@
 """v1.2.2 regression tests for finding #2 (CI last-known-good + quality gate) and publish_supabase."""
+import contextlib
+import io
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -13,6 +16,30 @@ import publish_supabase as ps
 import campaign_crawler as cc
 
 KEYS = ['qnb_ms', 'qnb_card', 'wings', 'teb_general', 'maximiles']
+
+# v1.5.0: bilinçli negatif senaryolar (rejected/bootstrap) GitHub Actions özetini/açıklamalarını kirletmesin.
+_SAVED_ENV = {}
+
+
+def setUpModule():
+    for k in ('GITHUB_STEP_SUMMARY', cg.ACTIONS_REPORTING_ENV):
+        _SAVED_ENV[k] = os.environ.get(k)
+    os.environ.pop('GITHUB_STEP_SUMMARY', None)
+    os.environ[cg.ACTIONS_REPORTING_ENV] = '0'
+
+
+def tearDownModule():
+    for k, v in _SAVED_ENV.items():
+        if v is None: os.environ.pop(k, None)
+        else: os.environ[k] = v
+
+
+def quiet(fn, *a, **kw):
+    """Run a guard command with stdout captured (no workflow commands reach the CI log)."""
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        rv = fn(*a, **kw)
+    return rv, buf.getvalue()
 TODAY = '2026-10-01'
 
 
@@ -185,7 +212,7 @@ class GuardFileFlowTests(unittest.TestCase):
         (self.tmp / 'catalog.json').write_text(json.dumps(catalog({'qnb_ms': 1})), encoding='utf-8')
         out = self.tmp / 'gh_out'
         with patch.dict('os.environ', {'GITHUB_OUTPUT': str(out)}):
-            cg.cmd_evaluate('success')
+            quiet(cg.cmd_evaluate, 'success')
         final = json.loads((self.tmp / 'catalog.json').read_text(encoding='utf-8'))
         self.assertEqual(final['generatedAt'], LKG['generatedAt'])
         self.assertEqual(final['meta']['guard']['verdict'], 'rejected')
@@ -198,7 +225,7 @@ class GuardFileFlowTests(unittest.TestCase):
         (self.tmp / 'catalog.json').write_text(json.dumps(catalog({'qnb_ms': 9, 'qnb_card': 12})), encoding='utf-8')
         out = self.tmp / 'gh_out'
         with patch.dict('os.environ', {'GITHUB_OUTPUT': str(out), cg.BOOTSTRAP_ENV: ''}):
-            cg.cmd_evaluate('success')
+            quiet(cg.cmd_evaluate, 'success')
         self.assertFalse((self.tmp / 'catalog.json').exists())  # nothing for the copy/deploy step
         text = out.read_text()
         self.assertIn('verdict=rejected', text); self.assertIn('deploy=false', text); self.assertIn('publish=false', text)
@@ -208,7 +235,7 @@ class GuardFileFlowTests(unittest.TestCase):
         (self.tmp / 'catalog.json').write_text(json.dumps(catalog({'qnb_ms': 3})), encoding='utf-8')
         out = self.tmp / 'gh_out'
         with patch.dict('os.environ', {'GITHUB_OUTPUT': str(out), cg.BOOTSTRAP_ENV: '1'}):
-            cg.cmd_evaluate('success')
+            quiet(cg.cmd_evaluate, 'success')
         self.assertIn('deploy=true', out.read_text())
         self.assertTrue(ps.guard_allows_publish(self.tmp / 'catalog_guard.json')[0])
 

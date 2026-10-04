@@ -1,0 +1,444 @@
+{
+ "schema": "card_families",
+ "schemaVersion": 1,
+ "note": "Reviewed vocabulary that maps card-eligibility wording in OFFICIAL campaign terms (and official structured card_type tokens) to canonical scope. 'product' = an explicitly named canonical product. 'family' = a stable card family/program code from master data (eligibility_master.v1.json cardFamilies); the campaign rule stays family-level and owned products match through master-data membership, so a new member product needs no campaign change. 'broad' families are bank-wide/feature-wide wording (e.g. 'Bonus özellikli bireysel kredi kartları'); they yield to an explicit exclusivity to another family. 'other' = a real card family not in master data (kept, never applied). 'platform' = a parent platform whose inclusion of our cards is not stated (needs_review). Free text never creates products or families. Patterns are Python regexes on Turkish-lowercased text, matched only in the title and in sentence-length lines. Coordinated lists ('Axess, Wings, Free ve banka kartları') are matched when a card noun follows within the clause.",
+ "exclusionWords": [
+  "hariç",
+  "haric",
+  "dahil değil",
+  "dahil degil",
+  "kapsam dışı",
+  "kapsam disi",
+  "yararlanamaz",
+  "faydalanamaz",
+  "geçerli değil",
+  "gecerli degil",
+  "katılamaz",
+  "kapsamında değil",
+  "kapsaminda degil",
+  "kapsamı dışında",
+  "kapsami disinda"
+ ],
+ "families": [
+  {
+   "bank": "akbank",
+   "code": "wings-elite",
+   "relation": "product",
+   "products": [
+    "akbank-wings-elite"
+   ],
+   "patterns": [
+    "wings elite"
+   ],
+   "tokens": [
+    "wings-elite"
+   ]
+  },
+  {
+   "bank": "akbank",
+   "code": "wings-black-card",
+   "relation": "product",
+   "products": [
+    "akbank-wings-black"
+   ],
+   "patterns": [
+    "wings black (?:kredi )?kart"
+   ],
+   "tokens": [
+    "wings-black"
+   ]
+  },
+  {
+   "bank": "akbank",
+   "code": "wings",
+   "relation": "family",
+   "products": [],
+   "patterns": [
+    "\\bwings(?:['’](?:e|ın|in|ınız|iniz))?\\s+(?:kredi\\s+)?kart(?:ı|i|lar|ları|ları|larınız|larınızla|ınız|ınızla|ınızın|\\s+sahip)",
+    "tüm wings",
+    "wings['’](?:e|a)\\s+özel",
+    "wings\\s+(?:kart\\s+)?sahipleri",
+    "\\baxess,\\s*wings\\b",
+    "wings\\s+ve\\s+axess",
+    "wings\\s+kart(?:lı)?\\s+müşteri",
+    "\\bwings(?:,|\\s+ve\\b|\\s+veya\\b)(?=[^.;]{0,50}kart)"
+   ],
+   "tokens": [],
+   "family": "wings",
+   "broad": false
+  },
+  {
+   "bank": "akbank",
+   "code": "wings-classic-card",
+   "relation": "other",
+   "products": [],
+   "patterns": [],
+   "tokens": [
+    "wings"
+   ]
+  },
+  {
+   "bank": "akbank",
+   "code": "wings-other",
+   "relation": "other",
+   "products": [],
+   "patterns": [
+    "wings business"
+   ],
+   "tokens": [
+    "wings-private",
+    "wings-business"
+   ]
+  },
+  {
+   "bank": "akbank",
+   "code": "wings-supplementary-virtual",
+   "relation": "ignore",
+   "products": [],
+   "patterns": [],
+   "tokens": [
+    "wings-ek-kart",
+    "wings-sanalkart"
+   ]
+  },
+  {
+   "bank": "akbank",
+   "code": "axess",
+   "relation": "platform",
+   "products": [],
+   "patterns": [
+    "\\baxess(?:['’](?:e|in|ınız|iniz))?\\s+(?:kredi\\s+)?kart",
+    "axess['’](?:e|a)\\s+özel",
+    "axess\\s+(?:kart\\s+)?sahipleri",
+    "axess\\s+ile",
+    "\\baxess(?:,|\\s+ve\\b|\\s+veya\\b)(?=[^.;]{0,50}kart)"
+   ],
+   "tokens": []
+  },
+  {
+   "bank": "akbank",
+   "code": "akbank-other",
+   "relation": "other",
+   "products": [],
+   "patterns": [
+    "akbank free",
+    "\\bneo kart",
+    "akbank kart\\b",
+    "akbank ticari"
+   ],
+   "tokens": []
+  },
+  {
+   "bank": "isbank",
+   "code": "maximiles-black",
+   "relation": "product",
+   "products": [
+    "is-maximiles-black"
+   ],
+   "patterns": [
+    "maximiles black"
+   ],
+   "tokens": []
+  },
+  {
+   "bank": "isbank",
+   "code": "maximiles",
+   "relation": "family",
+   "products": [],
+   "patterns": [
+    "\\bmaximiles(?:['’](?:a|ınız|iniz))?\\s+(?:kredi\\s+)?kart",
+    "tüm maximiles",
+    "maximiles['’](?:a|e)\\s+özel",
+    "maximiles\\s+(?:kart\\s+)?sahipleri",
+    "maximum,\\s*maximiles",
+    "maximiles\\s+ve\\s+maximum",
+    "maximum\\s+ve\\s+maximiles",
+    "\\bmaximiles(?:,|\\s+ve\\b|\\s+veya\\b)(?=[^.;]{0,50}kart)"
+   ],
+   "tokens": [],
+   "family": "maximiles",
+   "broad": false
+  },
+  {
+   "bank": "isbank",
+   "code": "maximum-bank-wide",
+   "relation": "family",
+   "products": [],
+   "patterns": [
+    "maximum özellikli (?:bireysel )?kredi kart",
+    "tüm (?:bireysel )?maximum (?:özellikli )?(?:bireysel )?kredi kart",
+    "bireysel maximum (?:özellikli )?kredi kart"
+   ],
+   "tokens": [],
+   "family": "isbank-maximum-individual-credit",
+   "broad": true
+  },
+  {
+   "bank": "isbank",
+   "code": "isbank-individual",
+   "relation": "family",
+   "family": "isbank-individual-credit",
+   "broad": true,
+   "products": [],
+   "patterns": [
+    "iş bankası bireysel kredi kart"
+   ],
+   "tokens": []
+  },
+  {
+   "bank": "isbank",
+   "code": "maximum",
+   "relation": "platform",
+   "products": [],
+   "patterns": [
+    "\\bmaximum(?:['’](?:a|unuz))?\\s+kart",
+    "maximum['’](?:a|e)\\s+özel",
+    "\\bmaximum(?:,|\\s+ve\\b|\\s+veya\\b)(?=[^.;]{0,50}kart)"
+   ],
+   "tokens": []
+  },
+  {
+   "bank": "isbank",
+   "code": "mercedescard",
+   "relation": "other",
+   "products": [],
+   "patterns": [
+    "mercedes\\s*card",
+    "mercedescard"
+   ],
+   "tokens": []
+  },
+  {
+   "bank": "isbank",
+   "code": "isbank-other",
+   "relation": "other",
+   "products": [],
+   "patterns": [
+    "maximiles platinum",
+    "maximum genç",
+    "maximum ticari",
+    "pati kart",
+    "privia",
+    "bankamatik kart"
+   ],
+   "tokens": []
+  },
+  {
+   "bank": "qnb",
+   "code": "ms-qnb-private",
+   "relation": "product",
+   "products": [
+    "qnb-ms-private"
+   ],
+   "patterns": [
+    "miles\\s*&\\s*smiles\\s+(?:qnb\\s+)?private(?!\\s+metal)"
+   ],
+   "tokens": []
+  },
+  {
+   "bank": "qnb",
+   "code": "miles-smiles-qnb",
+   "relation": "family",
+   "products": [],
+   "patterns": [
+    "miles\\s*&\\s*smiles\\s+qnb(?:['’](?:ye|e|nin|ın))?\\s+(?:kredi\\s+)?kart",
+    "miles\\s*&\\s*smiles\\s+qnb['’](?:ye|e)\\s+özel",
+    "tüm miles\\s*&\\s*smiles",
+    "miles\\s*&\\s*smiles\\s+qnb\\s+(?:kart\\s+)?sahipleri",
+    "miles\\s*&\\s*smiles\\s+qnb\\s+ile",
+    "miles\\s*&\\s*smiles(?:\\s+qnb)?(?:,|\\s+ve\\b|\\s+veya\\b)(?=[^.;]{0,50}kart)"
+   ],
+   "tokens": [],
+   "family": "miles-smiles-qnb",
+   "broad": false
+  },
+  {
+   "bank": "qnb",
+   "code": "qnb-bank-wide",
+   "relation": "family",
+   "products": [],
+   "patterns": [
+    "tüm qnb (?:bireysel )?kredi kart",
+    "(?<!smiles )qnb (?:bireysel )?kredi kartlar(?:ı|ınız)",
+    "(?<!smiles )qnb bireysel kredi kart"
+   ],
+   "tokens": [],
+   "family": "qnb-individual-credit",
+   "broad": true
+  },
+  {
+   "bank": "qnb",
+   "code": "qnb-other",
+   "relation": "other",
+   "products": [],
+   "patterns": [
+    "private metal",
+    "qnb fix",
+    "fix card",
+    "qnb ticari",
+    "qnb business",
+    "qnb debit",
+    "banka kartı"
+   ],
+   "tokens": []
+  },
+  {
+   "bank": "teb",
+   "code": "teb-infinite",
+   "relation": "product",
+   "products": [
+    "teb-infinite"
+   ],
+   "patterns": [
+    "\\b[iı]nfinite\\b"
+   ],
+   "tokens": []
+  },
+  {
+   "bank": "teb",
+   "code": "teb-bonus-individual",
+   "relation": "family",
+   "family": "teb-bonus-individual-credit",
+   "broad": true,
+   "products": [],
+   "patterns": [
+    "bonus özellikli bireysel kredi kart",
+    "teb bonus özellikli (?:bireysel )?kredi kart",
+    "bireysel bonus (?:özellikli )?kredi kart"
+   ],
+   "tokens": []
+  },
+  {
+   "bank": "teb",
+   "code": "teb-bank-wide",
+   "relation": "family",
+   "products": [],
+   "patterns": [
+    "teb bireysel kredi kart",
+    "bireysel teb kredi kart",
+    "sade kart hari(?:ç|ci) (?:tüm )?bireysel kredi kart",
+    "tüm teb (?:bireysel )?kredi kart",
+    "teb kredi kartlar(?:ı|ınız)"
+   ],
+   "tokens": [],
+   "family": "teb-individual-credit",
+   "broad": true
+  },
+  {
+   "bank": "teb",
+   "code": "teb-other",
+   "relation": "other",
+   "products": [],
+   "patterns": [
+    "she card",
+    "cepteteb dijital kredi kart",
+    "teb signature",
+    "signature kredi kart",
+    "teb ticari"
+   ],
+   "tokens": []
+  },
+  {
+   "bank": "ykb",
+   "code": "crystal",
+   "relation": "product",
+   "products": [
+    "ykb-crystal"
+   ],
+   "patterns": [
+    "\\bcrystal\\b"
+   ],
+   "tokens": []
+  },
+  {
+   "bank": "ykb",
+   "code": "ykb-bank-wide",
+   "relation": "family",
+   "products": [],
+   "patterns": [
+    "world özellikli (?:bireysel )?kredi kart",
+    "tüm world(?:card)? (?:özellikli )?(?:bireysel )?kredi kart",
+    "bireysel worldcard",
+    "worldcard['’]?(?:lar|ınız|larınız)?\\s+ile"
+   ],
+   "tokens": [],
+   "family": "ykb-world-individual-credit",
+   "broad": true
+  },
+  {
+   "bank": "ykb",
+   "code": "ykb-individual",
+   "relation": "family",
+   "family": "ykb-individual-credit",
+   "broad": true,
+   "products": [],
+   "patterns": [
+    "yapı kredi bireysel kredi kart"
+   ],
+   "tokens": []
+  },
+  {
+   "bank": "ykb",
+   "code": "ykb-other",
+   "relation": "other",
+   "products": [],
+   "patterns": [
+    "world eko",
+    "\\badios\\b",
+    "world business",
+    "opet worldcard",
+    "\\bplay kart",
+    "yapı kredi ticari"
+   ],
+   "tokens": []
+  },
+  {
+   "bank": "*",
+   "code": "commercial",
+   "relation": "other",
+   "products": [],
+   "patterns": [
+    "ticari (?:kredi )?kart",
+    "ticari kartlara özel",
+    "kurumsal kredi kart",
+    "işletme kart"
+   ],
+   "tokens": []
+  },
+  {
+   "bank": "*",
+   "code": "debit",
+   "relation": "other",
+   "products": [],
+   "patterns": [
+    "banka kart(?:ı|ları|larınız)\\s+(?:ile|ile yapılan|sahip)"
+   ],
+   "tokens": []
+  },
+  {
+   "bank": "*",
+   "code": "bank-wide-personal",
+   "relation": "family",
+   "products": [],
+   "patterns": [
+    "tüm bireysel kredi kart"
+   ],
+   "tokens": [],
+   "family": "{bank}-individual-credit",
+   "broad": true
+  }
+ ],
+ "segments": [
+  {
+   "bank": "teb",
+   "dim": "teb_tier",
+   "label": "Ultra",
+   "option": "ultra",
+   "patterns": [
+    "(?:yalnızca|sadece)\\s+(?:teb\\s+)?ultra",
+    "ultra\\s+paket(?:\\s+müşteri)?(?:lerine|lere)\\s+özel",
+    "ultra\\s+müşterilerine\\s+özel"
+   ]
+  }
+ ]
+}

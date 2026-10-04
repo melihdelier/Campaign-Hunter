@@ -80,7 +80,7 @@ class SharedFixtureTests(unittest.TestCase):
                 self.assertEqual(v["status"], "valid", v)
 
     def test_master_codes_match_bundled_seed(self):
-        sql = (ROOT / "supabase" / "migrations" / "008_user_profiles.sql").read_text(encoding="utf-8")
+        sql = "\n".join(p.read_text(encoding="utf-8") for p in sorted((ROOT / "supabase" / "migrations").glob("*.sql")) if p.name >= "008")
         for code in MASTER["cards"] | MASTER["banks"] | set(MASTER["dims"]):
             self.assertIn(f"'{code}'", sql, code)
 

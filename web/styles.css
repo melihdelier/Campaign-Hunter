@@ -224,3 +224,22 @@ body.gate-mode{padding-bottom:0}
 .inline-form{display:grid;gap:8px;margin:10px 0}
 .account-status{max-width:520px;margin:20px auto;text-align:center}
 @media(min-width:681px){.save-bar{bottom:12px}}
+
+/* v1.5.0 — kapsam ve banka isteği (sade, alarm vermeyen) */
+.coverage-note { margin: 4px 0 10px; padding: 8px 10px; border-left: 3px solid #cbd5e1; background: rgba(148,163,184,.08); border-radius: 6px; }
+.coverage-note a { margin-left: 4px; }
+.coverage-table { width: 100%; border-collapse: collapse; font-size: .82rem; }
+.coverage-table th, .coverage-table td { text-align: left; padding: 6px 4px; border-bottom: 1px solid rgba(148,163,184,.25); vertical-align: top; }
+.coverage-info { overflow-x: auto; }
+.bank-request { margin-top: 12px; }
+.bank-request summary { cursor: pointer; color: inherit; text-decoration: underline; font-size: .9rem; }
+.bank-request-row { display: flex; gap: 8px; margin-top: 6px; }
+.bank-request-row input { flex: 1; min-width: 0; }
+.no-cards { margin: 4px 0 8px; }
+.conditional-rewards { font-size: .85rem; }
+/* v1.5.0: Kampanyalar ikincil bölümler + Hangi Kart? işyeri kapsamı bölümleri */
+.campaign-secondary{margin:14px 0;padding:10px 14px;border:1px dashed #94a3b8;border-radius:14px;background:#f8fafc}
+.campaign-secondary>summary{cursor:pointer;font-weight:700;color:#334155}
+.campaign-secondary ul{margin:8px 0 0;padding-left:18px}
+.secondary-campaign{margin:6px 0}
+.merchant-conditional-card{border-color:#f59e0b;background:#fffbeb}

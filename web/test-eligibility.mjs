@@ -277,9 +277,8 @@ function oldEngineEligible(campaign, c) {
   assert.ok(initialCampaigns.every(c => validateCampaignEligibility(c).status === 'legacy'));
   // Guard ana veri kodları = paketli profil kataloğu (= migration 008/009 seed)
   const master = JSON.parse(readFileSync(new URL('../server/eligibility_master.v1.json', import.meta.url), 'utf8'));
-  assert.deepEqual(master.banks, CAT.banks.map(b => b.code));
-  assert.deepEqual(master.cardProducts, CAT.cardProducts.map(p => ({ code: p.code, bankCode: p.bankCode })));
-  assert.deepEqual(master.dimensions, CAT.dimensions.map(d => ({ code: d.code, options: d.options.map(o => o.code) })));
+  const { eligibilityMaster } = await import('../tools/gen-eligibility-master.mjs');
+  assert.deepEqual(master, eligibilityMaster(CAT), 'server/eligibility_master.v1.json is generated from the bundled catalog (run node tools/gen-eligibility-master.mjs)');
   console.log(`schema version enforcement tests: OK (${fx.cases.length} shared fixture cases)`);
 }
 

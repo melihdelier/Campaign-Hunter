@@ -12,6 +12,9 @@ published and never re-interpreted through the legacy fields (cardProductIds / s
 Master-data checks (server/eligibility_master.v1.json):
   - unknown dimension / option code      -> error   (the rule could never be satisfied; almost surely a typo)
   - unknown card product / bank code     -> warning (product not yet in master data, e.g. qnb-fix; inert)
+  - unknown card family code             -> warning (inert: no product is a member)
+v1.5.0: payWith/owns accept `families` (stable card family/program codes); products match through master-data
+membership, so the rule stays family-level when new member products are added.
 
 Only the Python standard library is used.
 """
@@ -33,6 +36,7 @@ def load_master(path: Path = MASTER_FILE) -> dict:
     return {
         "banks": set(m["banks"]),
         "cards": {p["code"] for p in m["cardProducts"]},
+        "families": {f["code"] for f in m.get("cardFamilies", [])},
         "dims": {d["code"]: set(d["options"]) for d in m["dimensions"]},
     }
 
@@ -71,20 +75,20 @@ def check_rule(rule, master: dict | None = None, path: str = "$", strict: bool =
             if arg is not True:
                 errors.append(f"{p}.always: must be true")
         elif op in ("payWith", "owns"):
-            if not isinstance(arg, dict) or ("cards" not in arg and "banks" not in arg):
-                errors.append(f"{p}.{op}: cards and/or banks required"); return
-            extra = [k for k in arg if k not in ("cards", "banks")]
+            if not isinstance(arg, dict) or ("cards" not in arg and "banks" not in arg and "families" not in arg):
+                errors.append(f"{p}.{op}: cards, banks and/or families required"); return
+            extra = [k for k in arg if k not in ("cards", "banks", "families")]
             if extra:
                 errors.append(f"{p}.{op}: unknown key(s) {', '.join(extra)}")
-            for k in ("cards", "banks"):
+            for k in ("cards", "banks", "families"):
                 if k not in arg:
                     continue
                 vals = arg[k]
                 if not isinstance(vals, list) or not vals or not all(_is_code(v) for v in vals):
                     errors.append(f"{p}.{op}.{k}: non-empty array of codes"); continue
                 if master is not None:
-                    known = master["cards"] if k == "cards" else master["banks"]
-                    label = "card product" if k == "cards" else "bank"
+                    known = {"cards": master["cards"], "banks": master["banks"], "families": master.get("families", set())}[k]
+                    label = {"cards": "card product", "banks": "bank", "families": "card family"}[k]
                     for v in vals:
                         if v not in known:
                             warnings.append(f"{p}.{op}.{k}: unknown {label} {v}")

@@ -17,7 +17,7 @@ from datetime import datetime
 
 from campaign_crawler import (
     refresh_catalog, load_catalog, STATUS_FILE, atomic_json, generic_parse,
-    RefreshAlreadyRunning,
+    RefreshAlreadyRunning, RESOLUTION_WARNING,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -125,7 +125,8 @@ def duplicate_candidates(bank: str, card_ids: list[str], title: str, text: str, 
 
 
 def build_custom_campaign(bank: str, card_ids: list[str], title: str, text: str) -> dict:
-    source={"key":"custom","bank":bank,"card_products":card_ids}
+    # User-private (local, never published): the USER declares which of their cards it is for. The crawler never does this.
+    source={"key":"custom","bank":bank}
     effective_title=title.strip()
     if not effective_title:
         # A pasted bank-app detail often starts with the campaign heading.
@@ -137,6 +138,11 @@ def build_custom_campaign(bank: str, card_ids: list[str], title: str, text: str)
     if not c:
         c={"id":"custom-preview","bank":bank,"title":effective_title,"cardProductIds":card_ids,"categories":["all"],"merchantScope":{"kind":"all"},"startDate":None,"endDate":None,"status":"active","resetPolicy":"campaign","periodCap":None,"requiresEnrollment":False,"rewardRule":{"kind":"unknown","minSpend":0},"rewardUnit":"discount_try","transactionRules":{},"rulesComplete":False,"decisionWarnings":["Metin otomatik çözümlenemedi; alanları manuel doğrula."],"sourceKind":"user_private","sourceUrl":None,"verifiedAt":datetime.now().isoformat(),"termsSummary":text[:750]}
     c["sourceKind"]="user_private"; c["sourceUrl"]=None; c["title"]=effective_title
+    c["cardProductIds"]=list(card_ids)
+    c["eligibilityResolution"]={"state":"resolved" if card_ids else "unresolved","method":"user_declared","bankCode":None,
+                                "cardProductIds":list(card_ids),"families":[],"excluded":[],"unmappedTokens":[],"segment":None,
+                                "reasons":["Kullanıcı bu özel kampanyanın kendi kartı için olduğunu belirtti (yalnız yerel)."]}
+    c["decisionWarnings"]=[w for w in (c.get("decisionWarnings") or []) if w not in RESOLUTION_WARNING.values()]
     return c
 
 def status():

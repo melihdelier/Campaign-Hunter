@@ -55,7 +55,7 @@ const byId = id => initialCampaigns.find(c => c.id === id);
   const ce = evaluateCampaign({ campaign: crystal, state: undefined, card: card('ykb-crystal'), merchant: 'Da Mario', category: 'restoran', amount: 5000, now: NOV5 });
   assert.equal(ce.informational, true); assert.equal(ce.coreExpired, true); assert.match(ce.infoNote, /2026-10-31/);
   const groups = groupCampaignsByCard({ campaigns: CORE, cards: initialCards, category: 'restoran', resolveCampaign: (r, c, n) => resolveSegmentCampaign(r, c, n), now: NOV5 });
-  assert.ok(groups.find(g => g.card.cardProductId === 'ykb-crystal').campaigns.some(c => c.expiredCore === true));
+  assert.ok(groups.find(g => g.card.cardProductId === 'ykb-crystal').informational.some(c => c.expiredCore === true), 'v1.5.0: ended core benefit stays visible in the informational section');
   const groupsOct = groupCampaignsByCard({ campaigns: CORE, cards: initialCards, category: 'restoran', resolveCampaign: (r, c, n) => resolveSegmentCampaign(r, c, n), now: OCT3 });
   assert.ok(groupsOct.find(g => g.card.cardProductId === 'ykb-crystal').campaigns.some(c => !c.expiredCore && c.officialDateConflict));
 
@@ -199,10 +199,11 @@ const byId = id => initialCampaigns.find(c => c.id === id);
   // Alt dize eşleşmesi manuel kategoriyi ezmez.
   const prime = resolveMerchantInput(initialCampaigns, 'Amazon Prime Video', 'dijital');
   assert.equal(prime.effectiveCategory, 'dijital');
-  assert.ok(prime.notices.some(n => /manuel kategori/.test(n)));
-  // Birebir alias hâlâ düzeltir.
-  assert.equal(resolveMerchantInput(initialCampaigns, 'Migros', 'e-ticaret').effectiveCategory, 'market');
-  assert.equal(resolveMerchantInput(initialCampaigns, 'Migros Sanal Market', 'e-ticaret').effectiveCategory, 'market');
+  assert.ok(prime.notices.some(n => /seçtiğin “dijital” kategorisi kullanıldı/.test(n)));
+  // v1.5.0: birebir alias da manuel seçimi DEĞİŞTİRMEZ (yalnız bilgi notu); "Otomatik" iken market olur.
+  assert.equal(resolveMerchantInput(initialCampaigns, 'Migros', 'e-ticaret').effectiveCategory, 'e-ticaret');
+  assert.equal(resolveMerchantInput(initialCampaigns, 'Migros Sanal Market', 'e-ticaret').effectiveCategory, 'e-ticaret');
+  assert.equal(resolveMerchantInput(initialCampaigns, 'Migros', 'auto').effectiveCategory, 'market');
   // Bulanık yazım (typo) manuel seçimi ezmez.
   assert.equal(resolveMerchantInput(initialCampaigns, 'Migross', 'e-ticaret').effectiveCategory, 'e-ticaret');
 

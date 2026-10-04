@@ -76,6 +76,46 @@ curl -s "$URL/rest/v1/catalog_snapshots?select=id&limit=1" -H "apikey: $KEY"    
 
 Only after every row above passes may release notes state "verified against production Supabase".
 
+## v1.4.4 hotfix: email confirmation redirect
+
+Run the steps in `docs/AUTH_REDIRECT_v1.4.4.md` §6. Dashboard prerequisite: Authentication → URL Configuration → Redirect URLs allows `https://melihdelier.github.io/Campaign-Hunter/` (Site URL recommended to be the same).
+
+| # | Step | Expected | Result |
+|---|---|---|---|
+| H1 | Sign up with a new mailbox and tap the confirmation link | Campaign Hunter opens (onboarding, signed in). No GitHub Pages 404. No token in the URL. | |
+| H2 | Tap the same link again | Login screen with the expired/used-link message | |
+| H3 | Şifremi unuttum, then tap the link | Profil › Hesap, signed in. A new password can be set. | |
+| H4 | Existing completed profile after H1–H3 | No onboarding | |
+
+## v1.5.0 additions
+
+Prerequisite: run `011_master_data_coverage.sql`, then `012_bank_support_requests.sql`, in the SQL Editor (each in full). Both succeed and are repeatable.
+
+| # | Step | Expected | Result |
+|---|---|---|---|
+| V1 | `select code from banks order by sort_order` | 10 banks, including garanti, ziraat, halkbank, vakifbank, denizbank | |
+| V2 | `select count(*) from card_products` | Unchanged: 6. No products for the new banks. | |
+| V3 | `rls_audit.sql` | `card_programs`, `bank_coverage`, `bank_support_requests` have RLS on. Query 4 returns no rows. | |
+| V4 | Existing account A signs in | Same banks, cards, segments and confirmations as before. No onboarding. Wings shows "Black Plus", TEB "Ultra". | |
+| V5 | Onboarding of a new account | Garanti shows "Kampanyalar yakında" and DenizBank "Henüz desteklenmiyor". Selecting only Garanti allows finishing. Hangi Kart? shows the one-line coverage note. | |
+| V6 | Profil › Bankalarım → "Bankam listede yok" → "ING Bank" (twice) | "isteğin kaydedildi". In SQL there is 1 row for this user with `normalized_key = 'ing'`, and `banks` is unchanged. | |
+| V7 | As user B: `curl $URL/rest/v1/bank_support_requests?select=*` with B's token | Only B's rows. Anonymous: denied or `[]`. `bank_support_request_summary` with a user token: denied. | |
+| V8 | Profil › Uygulama Bilgisi | Coverage table with 10 banks and no "Tam destek". After the first v1.5 crawl the source cell reads "Güncel · … · kapsam …" for sources whose completeness is not `incomplete` ("Son başarılı kayıt" otherwise). | |
+| V9 | After the first scheduled crawl | `catalog_snapshots.payload->'meta'->'sourceRegistry'` lists 14 sources. The four new-bank sources show `"health":"disabled"`. `meta.eligibilityDualWrite` has `translated` > 0. | |
+| V10 | QNB card user with QNB segment not selected | QNB Terminal Kadıköy shows 10%, with "Segmentini seçersen daha yüksek olabilir: %20, %15". With First Plus: 15%. With Private: 20%. | |
+| V11 | GitHub Actions run | Test job summary has no "Katalog kalite kapısı: rejected" from fixtures. The build job summary still shows the real guard verdict. | |
+
+### v1.5.0 crawl-first additions (replacement build)
+
+| # | Check | Expected | Result |
+|---|---|---|---|
+| V12 | First crawl's Actions build summary → "Kaynak tamlığı" table | One row per active source with mechanism, candidates, detail URLs, active, resolved/partial/unresolved, expired/rejected, parse errors, official count, completeness. `wings` mechanism contains `json_api` and shows an official count. No source shows `complete/high` unless its official count matched. | |
+| V13 | `catalog_snapshots.payload->'campaigns'` | Every crawled record has `eligibilityResolution.state` in resolved/partial/unresolved/needs_review. Records with `unresolved`/`needs_review` have `cardProductIds = []`. No MercedesCard record lists `is-maximiles-black`. No record titled "MercedesCard Kampanyaları", "Giyim&Aksesuar Kampanyaları" or "Taksitlendirme&Erteleme". | |
+| V14 | Hangi Kart?: merchant empty, 10.000 TL, Giyim, Yurt içi, Mağaza (POS) | No "İşyeri adı girilmedi". If the TEB giyim 1.200 TL campaign is active, it shows 120 TL in the conditional merchant section (Bonus-member merchants), never 1.200 TL and never as the winner. QNB "Giyim ve Kozmetik … 2.000'e Varan Mil" shows 500 Mil for one 10.000 TL transaction. "TEB'den Yurt Dışı Harcamalarınıza %5 İndirim" is not under "Potansiyel". | |
+| V15 | Same query with merchant "Migros" and category Giyim | Notice "… seçtiğin “giyim” kategorisi kullanıldı"; results are Giyim results. | |
+| V16 | Kampanyalar (any category) | Card groups list only definitely applicable campaigns. Collapsed sections "Bilgi amaçlı", "Kart uygunluğu doğrulanamayan kampanyalar" and "Bankalarının diğer kartlarına ait kampanyalar" hold the rest (only your banks). | |
+| V17 | TEB giyim campaign (`/sizin-icin/giyim-alisveris/`) in the live catalog | Category giyim; 3.000 TL+ → 120 TL Bonus, `periodCap` 1.200; domestic; enrollment required; `merchantScope.scopeType` = network. With an empty merchant it appears under "Üye işyerine bağlı koşullu sonuçlar" with 120 TL, never as the ranked winner. No record uses the retired `/sizin-icin/giyim-alisverislerinize-bonus/` URL. | |
+
 ## Deployment note (forward requirement)
 
 v1.4.3 is pre-public. Migration 010 renames option codes in a single step, which is acceptable only because there is no production profile data yet. From the first public release on, schema and data changes must follow backward-compatible **expand/contract**, so that a still-cached previous PWA client keeps working until it updates. See `ELIGIBILITY_SCHEMA_v1.md` §7.

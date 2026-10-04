@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const SUITES = ['test-engine.mjs', 'test-loyalty.mjs', 'test-campaign-browser.mjs', 'test-catalog-state.mjs', 'test-navigation.mjs', 'test-profile.mjs', 'test-eligibility.mjs', 'test-option-criteria.mjs'];
+const SUITES = ['test-engine.mjs', 'test-loyalty.mjs', 'test-campaign-browser.mjs', 'test-catalog-state.mjs', 'test-navigation.mjs', 'test-profile.mjs', 'test-eligibility.mjs', 'test-option-criteria.mjs', 'test-auth-redirect.mjs', 'test-v15.mjs', 'test-v15-discovery.mjs'];
 const ZONES = (process.env.BKA_TEST_ZONES || 'Europe/Istanbul,UTC,America/Los_Angeles,Pacific/Kiritimati').split(',');
 
 let failed = 0;

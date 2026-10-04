@@ -44,17 +44,19 @@ export const CRYSTAL_CARD_TYPES = [
   { value: 'crystal_and_metal', label: 'Crystal + Metal Crystal (ikisi birden)' },
 ];
 
+// v1.5.0: görünen ad = kademe adı (kimlik: value kodu). Eşikler kimlikte/etikette tutulmaz.
 export const TEB_TIERS = [
-  { value: 'standard', label: "Standart / 1 milyon TL'ye kadar", cardLabel: 'Standart' },
-  { value: 'plus', label: 'Plus / 1–5 milyon TL', cardLabel: 'Plus' },
-  { value: 'premium', label: 'Premium / 5–10 milyon TL', cardLabel: 'Premium' },
-  { value: 'ultra', label: 'Ultra / 10 milyon TL+', cardLabel: 'Ultra' },
+  { value: 'standard', label: 'Standart', cardLabel: 'Standart' },
+  { value: 'plus', label: 'Plus', cardLabel: 'Plus' },
+  { value: 'premium', label: 'Premium', cardLabel: 'Premium' },
+  { value: 'ultra', label: 'Ultra', cardLabel: 'Ultra' },
 ];
 
+// cardLabel = eski (yayındaki) segmentRules anahtarı; yalnız uyumluluk için (contract adımında kaldırılacak).
 export const WINGS_TIERS = [
-  { value: 'standard', label: 'Standart / 1 milyon TL altı' },
-  { value: 'black', label: 'Black / 1–2 milyon TL' },
-  { value: 'black_plus', label: 'Black Plus / 2 milyon TL+' },
+  { value: 'standard', label: 'Classic', cardLabel: 'Classic / 1 milyon TL altı' },
+  { value: 'black', label: 'Black', cardLabel: 'Black / 1–2 milyon TL' },
+  { value: 'black_plus', label: 'Black Plus', cardLabel: 'Black Plus / 2 milyon TL+' },
 ];
 
 // Normal MaxiMil kazanım oranı banda bağlıdır (ödül kuralı band kimliğine bağlanır, eşik metnine değil).

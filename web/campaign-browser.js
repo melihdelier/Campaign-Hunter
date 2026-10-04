@@ -1,5 +1,5 @@
 import { trDay, toTrDay } from './tr-time.js';
-import { evaluateCampaignForCard, buildEligibilityContext } from './eligibility.js';
+import { evaluateCampaignForCard, buildEligibilityContext, eligibilityUnresolved } from './eligibility.js';
 export const CAMPAIGN_BROWSER_CATEGORIES = [
   ['all','Tüm kategoriler'],
   ['akaryakit','Akaryakıt / Otogaz'],
@@ -78,6 +78,14 @@ export function merchantScopeInfo(campaign) {
       warning: scope.requiresBranchConfirmation ? 'Şube/POS kapsamı ayrıca doğrulanmalı.' : null
     };
   }
+  if (scope.kind === 'restricted_unknown' && scope.scopeType === 'network') {
+    return {
+      kind:'restricted_unknown', title:'İşyeri kapsamı',
+      text:`Yalnız ${scope.networkLabel || 'üye/anlaşmalı işyerleri'} içinde geçerli.`,
+      values:[], excluded,
+      warning:'Bu avantaj ilgili üye işyerinde geçerlidir; işyerinin kampanyaya dahil olduğunu doğrula.'
+    };
+  }
   if (scope.kind === 'restricted_unknown') {
     return {
       kind:'restricted_unknown', title:'İşyeri kapsamı',
@@ -96,13 +104,22 @@ export function paymentScopeInfo(campaign) {
   return { channels, location, requiredPos: tx.requiredPos || null };
 }
 
+// v1.5.0: Kampanyalar varsayılan görünümü YALNIZ kesin uygulanabilir kampanyaları gösterir.
+//   campaigns      kartında kesin uygun + koşulları çözülmüş (rulesComplete !== false) + ödül kademesi belirli
+//   informational  kartında uygun ama bilgi amaçlı (koşullar tam çözülemedi / kademe segmente bağlı / dönemi bitmiş ayrıcalık)
+// Uygunluğu belirsiz kampanyalar ve bankanın diğer kartlarına ait olanlar catalogSecondary() ile ayrı bölümdedir.
+export function isDefinitelyApplicable(c) {
+  return !c.expiredCore && c.rulesComplete !== false && !c.rewardVariantUnresolved;
+}
+
 export function groupCampaignsByCard({campaigns, cards, category='all', resolveCampaign=(c)=>c, now=new Date(), eligibilityContext=null}) {
   const ctx = eligibilityContext || buildEligibilityContext({ cards: (cards || []).filter(c => c.active) });
   return (cards || []).filter(c => c.active).map(card => {
     const items = [];
     const seen = new Set();
     for (const raw of campaigns || []) {
-      let c = resolveCampaign(raw, card, now) || raw;
+      // Ödül kademesi (rewardVariants/segmentRules) Hangi Kart? ile AYNI bağlamla çözülür.
+      let c = resolveCampaign(raw, card, now, ctx) || raw;
       if (!campaignActiveNow(c, now)) {
         // Dönemi bitmiş sürekli kart ayrıcalığı listeden sessizce düşmez; "dönem bitti" işaretiyle kalır.
         const ended = c.coreBenefit && toTrDay(c.endDate) && trDay(now) > toTrDay(c.endDate) && c.status !== 'inactive';
@@ -123,6 +140,26 @@ export function groupCampaignsByCard({campaigns, cards, category='all', resolveC
       if (complete) return complete;
       return String(a.title || '').localeCompare(String(b.title || ''), 'tr');
     });
-    return {card, campaigns:items};
+    return {card, campaigns: items.filter(isDefinitelyApplicable), informational: items.filter(c => !isDefinitelyApplicable(c))};
   });
+}
+
+// Global katalogdaki, kullanıcının bankalarına ait ama hiçbir sahip olunan karta kesin uygulanmayan kampanyalar.
+//   unresolved  kart uygunluğu resmi metinde bulunamadı / çelişkili (eligibilityResolution unresolved | needs_review)
+//   otherCards  uygunluk belli; yalnız uygulamada tanımlı olmayan veya sahip olunmayan kartlar için (ör. MercedesCard)
+export function catalogSecondary({campaigns, cards, category='all', now=new Date(), eligibilityContext=null, bankCodes=null}) {
+  const active = (cards || []).filter(c => c.active);
+  const ctx = eligibilityContext || buildEligibilityContext({ cards: active });
+  const banks = new Set(bankCodes || [...(ctx.banks || [])]);
+  const unresolved = [], otherCards = [];
+  for (const c of campaigns || []) {
+    if (c.sourceKind === 'user_private') continue;
+    const bank = c.bankCode || c.eligibilityResolution?.bankCode || null;
+    if (!bank || !banks.has(bank)) continue;
+    if (!campaignActiveNow(c, now) || !campaignMatchesCategory(c, category)) continue;
+    if (eligibilityUnresolved(c)) { unresolved.push(c); continue; }
+    if (!active.some(card => campaignAppliesToCard(c, card, ctx))) otherCards.push(c);
+  }
+  const byTitle = (a, b) => String(a.title || '').localeCompare(String(b.title || ''), 'tr');
+  return { unresolved: unresolved.sort(byTitle), otherCards: otherCards.sort(byTitle) };
 }

@@ -2,10 +2,15 @@
 // profile_dimensions / profile_dimension_options tablolarının istemci kopyasıdır (çevrimdışı/yedek).
 // Kaynak gerçek: veritabanı. Bu dosya ile migration 008 seed'inin birebir aynı olduğu RLS test düzeneğinde doğrulanır.
 //
-// Yeni banka/kart/segment eklemek = veri değişikliği (bu tablo + migration seed). Uygulama mimarisi değişmez.
-// ÖNEMLİ (v1.4.1): Ana veri şu an YALNIZ ilk altı kart ürününü içerir (Wings Elite, Wings Black, Maximiles Black,
-// Miles&Smiles QNB Private, TEB Özel Infinite, Crystal). Profil mimarisi çok sayıda banka/ürünü VERİ olarak destekler;
-// ürün kataloğunun genişletilmesi ayrı ve kontrollü bir adımda (bu dosya + migration seed + crawler kaynak eşlemesi) yapılacak.
+// Yeni banka/program/kart/segment eklemek = veri değişikliği (bu dosya + migration seed). Uygulama mimarisi değişmez.
+// v1.5.0: Hiçbir kart ürünü "özel" değildir. Model katmanları:
+//   Banka (PROFILE_BANKS)  →  Kart programı/ailesi (PROFILE_CARD_PROGRAMS: Bonus, Bankkart, Paraf, Wings …)
+//   →  Somut kart ürünü (PROFILE_CARD_PRODUCTS; yalnız uygunluk/ödül davranışı farklıysa ayrı kayıt)
+//   +  Profil boyutları (PROFILE_DIMENSIONS; birbirinden bağımsız, birden fazlası aynı anda)
+//   +  Ölçüt metaverisi (PROFILE_OPTION_CRITERIA; tarihli/kaynaklı, kimlikten ayrı)
+//   +  Kapsam (BANK_COVERAGE; bir bankanın listede olması TAM destek anlamına gelmez — coverage.js).
+// Bir banka; kart ürünü, profil boyutu, çekirdek ayrıcalık veya kampanya tarayıcısı olmadan da ana veride bulunabilir.
+// Doğrulanmamış ürün/segment/ayrıcalık EKLENMEZ.
 //
 // engineBinding: segment seçiminin karar motoruna nasıl aktarıldığı
 //   card_segment → seçeneğin engineLabel'ı, kapsamdaki kartların `segment` alanı olur (kampanya segment eşleşmesi)
@@ -21,15 +26,59 @@ export const PROFILE_BANKS = [
   { code: 'qnb', name: 'QNB', sortOrder: 30 },
   { code: 'teb', name: 'TEB', sortOrder: 40 },
   { code: 'ykb', name: 'Yapı Kredi', sortOrder: 50 },
+  // v1.5.0 — ana veride var; kart ürünü/boyut/çekirdek ayrıcalık/kampanya tarayıcısı HENÜZ YOK (BANK_COVERAGE).
+  { code: 'garanti', name: 'Garanti BBVA', sortOrder: 60 },
+  { code: 'ziraat', name: 'Ziraat Bankası', sortOrder: 70 },
+  { code: 'halkbank', name: 'Halkbank', sortOrder: 80 },
+  { code: 'vakifbank', name: 'VakıfBank', sortOrder: 90 },
+  { code: 'denizbank', name: 'DenizBank', sortOrder: 100 },
+];
+
+// Kart programları/aileleri. YALNIZ resmi kaynakla doğrulanmış kayıtlar. Program kodu bankaya özeldir
+// (aynı platformu kullanan iki banka iki ayrı program kaydıdır). verifiedAt = KAYNAK doğrulaması (global ana veri).
+// verifiedAt null + sourceUrl = mevcut üretim kampanya tarayıcısının resmi kaynağı (çalışan kaynak; ayrıca etiket doğrulaması yapılmadı).
+export const PROFILE_CARD_PROGRAMS = [
+  { code: 'wings', bankCode: 'akbank', name: 'Wings', sourceUrl: 'https://www.wingscard.com.tr/kampanyalar', verifiedAt: null, sortOrder: 10 },
+  { code: 'axess', bankCode: 'akbank', name: 'Axess', sourceUrl: 'https://www.axess.com.tr/axess/kampanyalar', verifiedAt: null, sortOrder: 20 },
+  { code: 'maximiles', bankCode: 'isbank', name: 'Maximiles', sourceUrl: 'https://www.maximiles.com.tr/kampanyalar/tum-kampanyalar', verifiedAt: null, sortOrder: 10 },
+  { code: 'qnb-card', bankCode: 'qnb', name: 'QNB Card', sourceUrl: 'https://www.qnbcard.com.tr/kampanyalar', verifiedAt: null, sortOrder: 10 },
+  { code: 'miles-smiles-qnb', bankCode: 'qnb', name: 'Miles&Smiles QNB', sourceUrl: 'https://milesandsmilesqnb.com.tr/kampanyalar', verifiedAt: null, sortOrder: 20 },
+  { code: 'world', bankCode: 'ykb', name: 'World', sourceUrl: 'https://www.worldcard.com.tr/kampanya', verifiedAt: null, sortOrder: 10 },
+  { code: 'crystal', bankCode: 'ykb', name: 'Crystal', sourceUrl: 'https://www.crystalcard.com.tr/crystal-dunyasi/varliga-bagli-crystal-ayricaliklari/crystal-ile-yurt-disi-yurt-ici-tum-restoranlarda-5-indirim', verifiedAt: '2026-10-03T19:00:00Z', sortOrder: 20 },
+  { code: 'bonus-garanti', bankCode: 'garanti', name: 'Bonus', sourceUrl: 'https://www.bonus.com.tr/kampanyalar', verifiedAt: '2026-10-04T00:00:00Z', sortOrder: 10 },
+  { code: 'bankkart', bankCode: 'ziraat', name: 'Bankkart', sourceUrl: 'https://www.bankkart.com.tr/kampanyalar', verifiedAt: '2026-10-04T00:00:00Z', sortOrder: 10 },
+  { code: 'paraf', bankCode: 'halkbank', name: 'Paraf', sourceUrl: 'https://www.paraf.com.tr/tr/kampanyalar.html', verifiedAt: '2026-10-04T00:00:00Z', sortOrder: 10 },
+  { code: 'vakifkart', bankCode: 'vakifbank', name: 'Vakıfkart (VakıfBank Worldcard)', sourceUrl: 'https://www.vakifkart.com.tr/kampanyalar', verifiedAt: '2026-10-04T00:00:00Z', sortOrder: 10 },
+  // DenizBank: program kaydı EKLENMEDİ (resmi kaynak bu sürümde doğrulanamadı).
 ];
 
 export const PROFILE_CARD_PRODUCTS = [
-  { code: 'akbank-wings-elite', bankCode: 'akbank', name: 'Wings Elite', family: 'wings', sortOrder: 10 },
-  { code: 'akbank-wings-black', bankCode: 'akbank', name: 'Wings Black', family: 'wings', sortOrder: 20 },
-  { code: 'is-maximiles-black', bankCode: 'isbank', name: 'Maximiles Black', family: 'maximiles', sortOrder: 10 },
-  { code: 'qnb-ms-private', bankCode: 'qnb', name: 'Miles&Smiles QNB Private', family: 'miles-smiles-qnb', sortOrder: 10 },
-  { code: 'teb-infinite', bankCode: 'teb', name: 'TEB Özel Infinite', family: 'teb-infinite', sortOrder: 10 },
-  { code: 'ykb-crystal', bankCode: 'ykb', name: 'Crystal', family: 'crystal', sortOrder: 10 },
+  { code: 'akbank-wings-elite', bankCode: 'akbank', name: 'Wings Elite', family: 'wings', sortOrder: 10, programCode: 'wings' },
+  { code: 'akbank-wings-black', bankCode: 'akbank', name: 'Wings Black', family: 'wings', sortOrder: 20, programCode: 'wings' },
+  { code: 'is-maximiles-black', bankCode: 'isbank', name: 'Maximiles Black', family: 'maximiles', sortOrder: 10, programCode: 'maximiles' },
+  { code: 'qnb-ms-private', bankCode: 'qnb', name: 'Miles&Smiles QNB Private', family: 'miles-smiles-qnb', sortOrder: 10, programCode: 'miles-smiles-qnb' },
+  { code: 'teb-infinite', bankCode: 'teb', name: 'TEB Özel Infinite', family: 'teb-infinite', sortOrder: 10, programCode: null },
+  { code: 'ykb-crystal', bankCode: 'ykb', name: 'Crystal', family: 'crystal', sortOrder: 10, programCode: 'crystal' },
+];
+
+// v1.5.0 — Uygunluk aileleri (kampanya kapsamı için KARARLI aile/program kodları). Bir kampanya "TEB Bonus özellikli
+// bireysel kredi kartları" veya "Miles&Smiles QNB kartları" gibi bir AİLEYİ hedefler; ana veride o aileden şu an tek
+// ürün olması kampanyayı o ürüne İNDİRGEMEZ. Kampanya kuralı aile düzeyinde kalır ({payWith:{families:[...]}});
+// sahip olunan ürün, üyeliği üzerinden eşleşir. Yeni bir üye ürün = yalnız bu listeye ekleme (kampanya kaydı değişmez).
+// membershipComplete:false → bankanın bu ailedeki ürünlerinin hepsi ana veride YOK (çözüm 'partial' kalır).
+// Bir ürün birden fazla aileye üye olabilir (TEB Özel Infinite: Bonus özellikli + bireysel kredi kartı).
+export const CARD_ELIGIBILITY_FAMILIES = [
+  { code: 'wings', bankCode: 'akbank', label: 'Wings kredi kartları', members: ['akbank-wings-elite', 'akbank-wings-black'], membershipComplete: false },
+  { code: 'akbank-individual-credit', bankCode: 'akbank', label: 'Akbank bireysel kredi kartları', members: ['akbank-wings-elite', 'akbank-wings-black'], membershipComplete: false },
+  { code: 'maximiles', bankCode: 'isbank', label: 'Maximiles kartları', members: ['is-maximiles-black'], membershipComplete: false },
+  { code: 'isbank-maximum-individual-credit', bankCode: 'isbank', label: 'Maximum özellikli bireysel kredi kartları', members: ['is-maximiles-black'], membershipComplete: false },
+  { code: 'isbank-individual-credit', bankCode: 'isbank', label: 'İş Bankası bireysel kredi kartları', members: ['is-maximiles-black'], membershipComplete: false },
+  { code: 'miles-smiles-qnb', bankCode: 'qnb', label: 'Miles&Smiles QNB kartları', members: ['qnb-ms-private'], membershipComplete: false },
+  { code: 'qnb-individual-credit', bankCode: 'qnb', label: 'QNB bireysel kredi kartları', members: ['qnb-ms-private'], membershipComplete: false },
+  { code: 'teb-bonus-individual-credit', bankCode: 'teb', label: 'TEB Bonus özellikli bireysel kredi kartları', members: ['teb-infinite'], membershipComplete: false },
+  { code: 'teb-individual-credit', bankCode: 'teb', label: 'TEB bireysel kredi kartları', members: ['teb-infinite'], membershipComplete: false },
+  { code: 'ykb-world-individual-credit', bankCode: 'ykb', label: 'World özellikli bireysel kredi kartları', members: ['ykb-crystal'], membershipComplete: false },
+  { code: 'ykb-individual-credit', bankCode: 'ykb', label: 'Yapı Kredi bireysel kredi kartları', members: ['ykb-crystal'], membershipComplete: false },
 ];
 
 export const PROFILE_DIMENSIONS = [
@@ -57,9 +106,11 @@ export const PROFILE_DIMENSIONS = [
     code: 'wings_tier', label: 'Akbank Wings varlık programı', kind: 'asset_band', bankCode: 'akbank', cardCodes: ['akbank-wings-elite', 'akbank-wings-black'],
     engineBinding: 'card_segment', settingKey: 'wingsTier', sortOrder: 20,
     options: [
-      { code: 'standard', label: 'Classic / 1 milyon TL altı', engineLabel: 'Classic / 1 milyon TL altı', sortOrder: 10 },
-      { code: 'black', label: 'Black / 1–2 milyon TL', engineLabel: 'Black / 1–2 milyon TL', sortOrder: 20 },
-      { code: 'black_plus', label: 'Black Plus / 2 milyon TL+', engineLabel: 'Black Plus / 2 milyon TL+', sortOrder: 30 },
+      // v1.5.0: görünen ad = kademe adı. engineLabel yalnız eski (yayındaki) segmentRules anahtarıdır; kimlik DEĞİL,
+      // kaldırılması expand/contract'ın "contract" adımına bırakıldı (docs/MASTER_DATA_v1.5.md).
+      { code: 'standard', label: 'Classic', engineLabel: 'Classic / 1 milyon TL altı', sortOrder: 10 },
+      { code: 'black', label: 'Black', engineLabel: 'Black / 1–2 milyon TL', sortOrder: 20 },
+      { code: 'black_plus', label: 'Black Plus', engineLabel: 'Black Plus / 2 milyon TL+', sortOrder: 30 },
     ],
   },
   {
@@ -95,10 +146,10 @@ export const PROFILE_DIMENSIONS = [
     code: 'teb_tier', label: 'TEB Infinite paket seviyesi', kind: 'segment', bankCode: 'teb', cardCodes: ['teb-infinite'],
     engineBinding: 'card_segment', settingKey: 'tebTier', sortOrder: 50,
     options: [
-      { code: 'standard', label: "Standart / 1 milyon TL'ye kadar", engineLabel: 'Standart', sortOrder: 10 },
-      { code: 'plus', label: 'Plus / 1–5 milyon TL', engineLabel: 'Plus', sortOrder: 20 },
-      { code: 'premium', label: 'Premium / 5–10 milyon TL', engineLabel: 'Premium', sortOrder: 30 },
-      { code: 'ultra', label: 'Ultra / 10 milyon TL+', engineLabel: 'Ultra', sortOrder: 40 },
+      { code: 'standard', label: 'Standart', engineLabel: 'Standart', sortOrder: 10 },
+      { code: 'plus', label: 'Plus', engineLabel: 'Plus', sortOrder: 20 },
+      { code: 'premium', label: 'Premium', engineLabel: 'Premium', sortOrder: 30 },
+      { code: 'ultra', label: 'Ultra', engineLabel: 'Ultra', sortOrder: 40 },
     ],
   },
 ];
@@ -140,12 +191,35 @@ export const PROFILE_OPTION_CRITERIA = [
   crystal('band_4', '10 milyon TL ve üzeri', 10000000, null, 'Toplam varlığı 10 milyon TL ve üzerinde olan Crystal kart sahibi müşterilerimiz, işlem bazında en fazla 4.000 TL, aylık bazda en fazla 10.000 TL değerinde indirim kazanabilir.'),
 ];
 
-// Önbelleğe alınmış eski katalogları (eşik kodlu seçenekler) ayırt etmek için şema sürümü.
-export const PROFILE_CATALOG_SCHEMA = 2;
+// ---------------------------------------------------------------- v1.5.0: banka kapsamı (global ana veri)
+// Her faset bağımsız ve makinece okunur: 'full' | 'partial' | 'none'  (kampanyalar için ek olarak 'coming').
+// Beyan edilen değerler ÜST SINIRDIR: coverage.js kampanya fasetini kaynak kaydına (server/source_catalog.json →
+// catalog.meta.sourceRegistry) göre kırpar; etkin tarayıcısı olmayan banka asla 'full'/'partial' kampanya kapsamı göstermez.
+// Genel destek düzeyi (full / partial / profile_only / coming / unsupported) TÜRETİLİR, saklanmaz.
+export const BANK_COVERAGE = [
+  // Mevcut bankalar: yalnız bazı ürünler/boyutlar/ayrıcalıklar ve bazı kampanya kaynakları kapsanıyor → kısmi.
+  { bankCode: 'akbank', cardProducts: 'partial', profileDimensions: 'partial', coreBenefits: 'partial', campaigns: 'partial', note: 'Wings Elite/Black kapsanıyor; Axess ürünleri henüz yok.' },
+  { bankCode: 'isbank', cardProducts: 'partial', profileDimensions: 'partial', coreBenefits: 'partial', campaigns: 'partial', note: 'Maximiles Black kapsanıyor; Maximum ürünleri henüz yok.' },
+  { bankCode: 'qnb', cardProducts: 'partial', profileDimensions: 'partial', coreBenefits: 'partial', campaigns: 'partial', note: 'Miles&Smiles QNB Private kapsanıyor.' },
+  { bankCode: 'teb', cardProducts: 'partial', profileDimensions: 'partial', coreBenefits: 'partial', campaigns: 'partial', note: 'TEB Özel Infinite kapsanıyor.' },
+  { bankCode: 'ykb', cardProducts: 'partial', profileDimensions: 'partial', coreBenefits: 'partial', campaigns: 'partial', note: 'Crystal kapsanıyor; World ürünleri henüz yok.' },
+  // Yeni bankalar: banka + (doğrulanmış) program kaydı; resmi kampanya sayfası kayıtlı ama tarayıcı kapalı.
+  { bankCode: 'garanti', cardProducts: 'none', profileDimensions: 'none', coreBenefits: 'none', campaigns: 'coming', note: 'Bonus programı kayıtlı; kart ürünleri ve kampanya tarayıcısı hazırlanıyor.' },
+  { bankCode: 'ziraat', cardProducts: 'none', profileDimensions: 'none', coreBenefits: 'none', campaigns: 'coming', note: 'Bankkart programı kayıtlı; kart ürünleri ve kampanya tarayıcısı hazırlanıyor.' },
+  { bankCode: 'halkbank', cardProducts: 'none', profileDimensions: 'none', coreBenefits: 'none', campaigns: 'coming', note: 'Paraf programı kayıtlı; kart ürünleri ve kampanya tarayıcısı hazırlanıyor.' },
+  { bankCode: 'vakifbank', cardProducts: 'none', profileDimensions: 'none', coreBenefits: 'none', campaigns: 'coming', note: 'Vakıfkart programı kayıtlı; kart ürünleri ve kampanya tarayıcısı hazırlanıyor.' },
+  { bankCode: 'denizbank', cardProducts: 'none', profileDimensions: 'none', coreBenefits: 'none', campaigns: 'none', note: 'Yalnız banka kaydı; program ve kampanya kaynağı henüz doğrulanmadı.' },
+];
+
+// Önbelleğe alınmış eski katalogları ayırt etmek için şema sürümü (2: nötr bant kodları; 3: program + kapsam).
+export const PROFILE_CATALOG_SCHEMA = 3;
 
 export const BUNDLED_PROFILE_CATALOG = {
   banks: PROFILE_BANKS,
+  cardPrograms: PROFILE_CARD_PROGRAMS,
   cardProducts: PROFILE_CARD_PRODUCTS,
+  cardFamilies: CARD_ELIGIBILITY_FAMILIES,
+  bankCoverage: BANK_COVERAGE,
   dimensions: PROFILE_DIMENSIONS,
   optionCriteria: PROFILE_OPTION_CRITERIA,
   schema: PROFILE_CATALOG_SCHEMA,

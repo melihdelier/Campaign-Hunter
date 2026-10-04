@@ -23,19 +23,22 @@ concurrency:
   group: pages
   cancel-in-progress: false
 
+# v1.5.0 bakım: aksiyonlar Node 24 çalışma zamanlı kararlı ana sürümlere alındı (checkout v5, setup-python v6,
+# setup-node v5, configure-pages v6, upload-pages-artifact v5 [upload-artifact v7], deploy-pages v5). Koşucu görüntüsü
+# ubuntu-latest geçişinden etkilenmemek için ubuntu-24.04'e sabitlendi. Ayrıntı: docs/RELEASE_v1.5.0.md.
 jobs:
   test:
     # Testler gecmeden tarama/yayin yapilmaz. Kampanya takvimi Europe/Istanbul'a gore isledigi icin
     # JS testleri hem UTC hem Europe/Istanbul (ve uc saat dilimleri) altinda kosar.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
-          node-version: '20'
+          node-version: '22'
       - name: PostgreSQL ikilileri (Supabase RLS testleri icin)
         run: |
           ls /usr/lib/postgresql/*/bin/initdb 2>/dev/null || (sudo apt-get update && sudo apt-get install -y postgresql)
@@ -58,9 +61,12 @@ jobs:
           npx playwright install --with-deps chromium
           node e2e/ui-smoke.mjs
           node e2e/account-smoke.mjs
+          node e2e/auth-callback-smoke.mjs
+          node e2e/v15-smoke.mjs
+          node e2e/discovery-smoke.mjs
   build:
     needs: test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       verdict: ${{ steps.guard.outputs.verdict }}
     env:
@@ -73,8 +79,8 @@ jobs:
       # Fail-closed: LKG alinamazsa yayin engellenir. Yalniz elle calistirmada acikca secilirse bootstrap'a izin verilir.
       CATALOG_GUARD_ALLOW_BOOTSTRAP: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_bootstrap && '1' || '' }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
       - name: Son basarili uretim katalogunu al (LKG)
@@ -125,25 +131,25 @@ jobs:
           }
           pathlib.Path('web/runtime-config.js').write_text('window.BKA_CONFIG = '+json.dumps(c,ensure_ascii=False)+';\n',encoding='utf-8')
           PY
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/configure-pages@v6
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: web
   deploy:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: build
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
   catalog-health:
     # Kod dağıtımı engellenmez; ama yeni tarama reddedildiyse iş akışı kırmızı görünür (GitHub e-posta bildirimi).
     needs: [build, deploy]
     if: ${{ always() && needs.build.result == 'success' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Katalog kalite kapisi sonucu
         run: |

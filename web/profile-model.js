@@ -108,8 +108,16 @@ export function isProfileComplete(profile) {
   return Boolean(profile && profile.onboardingCompletedAt);
 }
 
-export function canCompleteOnboarding(profile) {
-  return (profile?.cards || []).length > 0;
+// v1.5.0: kart ürünü henüz tanımlanmamış bir bankayı (ör. kampanyaları "yakında" olan banka) seçen kullanıcı da
+// profilini tamamlayabilir; Hangi Kart? yine YALNIZ sahip olunan (ve tanımlı) kartları karşılaştırır.
+export function banksWithoutCardProducts(profile, catalog) {
+  const withProducts = new Set((catalog?.cardProducts || []).map(p => p.bankCode));
+  return (profile?.banks || []).filter(b => !withProducts.has(b));
+}
+
+export function canCompleteOnboarding(profile, catalog = null) {
+  if ((profile?.cards || []).length > 0) return true;
+  return Boolean(catalog) && banksWithoutCardProducts(profile, catalog).length > 0;
 }
 
 // Karar motoruna giden kart listesi: YALNIZ kullanıcının sahip olduğu kartlar.
@@ -140,6 +148,22 @@ export function profileToEngineCards(profile, catalog, { now = new Date() } = {}
     if (cardType) card.cardType = cardType;
     return card;
   });
+}
+
+// v1.5.0 — Eski (hesapsız) mod için kart alanları, ürüne özel kod OLMADAN ana veriden türetilir:
+// kartı kapsayan card_segment boyutunun ayardaki seçeneği → segment (motor anahtarı = engineLabel) + görünen ad;
+// card_type boyutu → cardType. Ayar geçersizse `defaults` (eski modun başlangıç ayarları) kullanılır.
+export function legacyCardFields(cardProductId, settings, catalog, defaults = {}) {
+  const out = { segment: null, segmentLabel: null, cardType: undefined };
+  for (const d of catalog.dimensions || []) {
+    if (!d.settingKey || !(d.cardCodes || []).includes(cardProductId)) continue;
+    const pick = v => (d.options || []).find(o => o.code === v);
+    const opt = pick(settings?.[d.settingKey]) || pick(defaults?.[d.settingKey]) || null;
+    if (!opt) continue;
+    if (d.engineBinding === 'card_segment') { out.segment = opt.engineLabel || opt.label; out.segmentLabel = optionDisplayLabel(catalog, d.code, opt.code); }
+    if (d.engineBinding === 'card_type') out.cardType = opt.engineLabel || opt.code;
+  }
+  return out;
 }
 
 // Mevcut kazanım formüllerinin (loyalty.js) okuduğu ayarlar. Seçilmemiş = null (oran uydurulmaz).
@@ -212,7 +236,7 @@ export const ONBOARDING_STEPS = ['banks', 'cards', 'attributes', 'review'];
 export function nextOnboardingStep(step, profile, catalog) {
   const i = ONBOARDING_STEPS.indexOf(step);
   if (step === 'banks' && !(profile.banks || []).length) return { step, error: 'En az bir banka seç.' };
-  if (step === 'cards' && !(profile.cards || []).length) return { step, error: 'En az bir kart seç.' };
+  if (step === 'cards' && !canCompleteOnboarding(profile, catalog)) return { step, error: 'En az bir kart seç.' };
   let next = ONBOARDING_STEPS[Math.min(i + 1, ONBOARDING_STEPS.length - 1)];
   if (next === 'attributes' && !applicableDimensions(profile, catalog).length) next = 'review';
   return { step: next, error: null };

@@ -7,7 +7,9 @@
 //   { "all":  [rule, ...] }                          VE
 //   { "any":  [rule, ...] }                          VEYA
 //   { "not":  rule }                                 DEĞİL / hariç tutma
-//   { "payWith": { "cards": [...], "banks": [...] } } işlemde kullanılan kart bu ürünlerden/bankalardan biri
+//   { "payWith": { "cards": [...], "banks": [...], "families": [...] } } işlemde kullanılan kart bu ürünlerden/bankalardan/
+//                                                    uygunluk ailelerinden biri (v1.5.0: families = kararlı aile/program kodu;
+//                                                    ürün, ana verideki aile ÜYELİĞİ ile eşleşir — kural ürün listesine indirgenmez)
 //   { "owns":    { "cards": [...], "banks": [...] } } kullanıcı bu ürünlerden birine sahip / bu bankanın müşterisi
 //   { "attr":    { "dim": "teb_tier", "in": ["ultra"] } }  profil özniteliği (boyut kodu + seçenek kodları)
 //   { "always": true }
@@ -17,6 +19,7 @@
 // Bilinmeyen öznitelik asla "uygun" sayılmaz; gerekçesiyle birlikte döner (gelecekte "segmentini seçersen" ipucu için).
 
 import { optionDisplayLabel } from './profile-criteria.js';
+import { CARD_ELIGIBILITY_FAMILIES } from './profile-catalog.js';
 
 export const ELIGIBILITY_SCHEMA_VERSION = 1;
 
@@ -30,6 +33,7 @@ const asList = v => (Array.isArray(v) ? v : (v == null ? [] : [v])).map(String);
 export function buildEligibilityContext({ cards = [], banks = null, attributes = null, catalog = null } = {}) {
   const cardCodes = cards.map(c => (typeof c === 'string' ? c : c?.cardProductId)).filter(Boolean);
   const cardBank = new Map((catalog?.cardProducts || []).map(p => [p.code, p.bankCode]));
+  const productFamilies = productFamilyMap(catalog);
   const bankCodes = banks ? banks.map(String) : [...new Set(cardCodes.map(c => cardBank.get(c)).filter(Boolean))];
   return {
     cards: new Set(cardCodes),
@@ -38,8 +42,23 @@ export function buildEligibilityContext({ cards = [], banks = null, attributes =
     attributesKnown: attributes != null,
     catalog,
     cardBank,
+    productFamilies,
     mode: 'actual',
   };
+}
+
+// Ürün → uygunluk aileleri (ana veri). Katalog aile listesi taşımıyorsa paketli sürümlü liste kullanılır.
+export function productFamilyMap(catalog) {
+  const fams = Array.isArray(catalog?.cardFamilies) ? catalog.cardFamilies : CARD_ELIGIBILITY_FAMILIES;
+  const map = new Map();
+  for (const f of fams) for (const m of f.members || []) { if (!map.has(m)) map.set(m, new Set()); map.get(m).add(f.code); }
+  return map;
+}
+
+export function cardFamiliesOf(card, ctx) {
+  const code = card?.cardProductId;
+  const fromMaster = (ctx?.productFamilies || productFamilyMap(ctx?.catalog)).get(code) || new Set();
+  return new Set([...fromMaster, ...asList(card?.families)]);
 }
 
 // Eski tek-kullanıcı ayarlarından (settingKey) kanonik öznitelik haritası.
@@ -89,7 +108,9 @@ export function evaluateRule(rule, ctx, card, opts = {}) {
     const cardsOk = !arg?.cards || asList(arg.cards).includes(String(card?.cardProductId));
     const bank = ctx.cardBank?.get(card?.cardProductId) || card?.bankCode || null;
     const banksOk = !arg?.banks || (bank != null && asList(arg.banks).includes(bank));
-    return leaf(cardsOk && banksOk, { code: 'card_product', message: 'Bu kart tipi kampanyaya dahil değil.' });
+    const fams = arg?.families ? cardFamiliesOf(card, ctx) : null;
+    const familiesOk = !arg?.families || asList(arg.families).some(f => fams.has(f));
+    return leaf(cardsOk && banksOk && familiesOk, { code: 'card_product', message: 'Bu kart tipi kampanyaya dahil değil.' });
   }
 
   if (opts.cardOnly) return leaf(null); // aday ön-elemesi: yalnız kart koşulu değerlendirilir
@@ -97,7 +118,9 @@ export function evaluateRule(rule, ctx, card, opts = {}) {
   if (op === 'owns') {
     const cardsOk = !arg?.cards || asList(arg.cards).some(c => ctx.cards.has(c));
     const banksOk = !arg?.banks || asList(arg.banks).some(b => ctx.banks.has(b));
-    return leaf(cardsOk && banksOk, { code: 'ownership', message: 'Kampanya için gerekli kart/banka profilinde yok.' });
+    const famMap = ctx.productFamilies || productFamilyMap(ctx.catalog);
+    const familiesOk = !arg?.families || [...ctx.cards].some(c => asList(arg.families).some(f => famMap.get(c)?.has(f)));
+    return leaf(cardsOk && banksOk && familiesOk, { code: 'ownership', message: 'Kampanya için gerekli kart/banka profilinde yok.' });
   }
 
   if (op === 'attr') {
@@ -217,8 +240,19 @@ export function campaignEligibilityRule(campaign) {
   return resolveCampaignEligibility(campaign).rule;
 }
 
+// v1.5.0: tarayıcı her kayda kampanyanın KENDİ metninden/resmi yapısal verisinden çözülmüş kart uygunluğunu yazar
+// (eligibilityResolution.state: resolved | partial | unresolved | needs_review). Çözülemeyen/çelişkili kayıt katalogda kalır
+// ama hiçbir kart için kesin uygun DEĞİLDİR (kapalı başarısızlık; cardProductIds de zaten boştur).
+export const UNRESOLVED_ELIGIBILITY_STATES = Object.freeze(['unresolved', 'needs_review']);
+export function eligibilityUnresolved(campaign) {
+  const st = campaign?.eligibilityResolution?.state;
+  return UNRESOLVED_ELIGIBILITY_STATES.includes(st);
+}
+const UNRESOLVED_REASON = { code: 'eligibility_unresolved', message: 'Kampanyanın hangi kartlarda geçerli olduğu resmi metinde doğrulanamadı.' };
+
 // Bir kampanyanın, kullanıcının BELİRLİ bir kartıyla yapılan işlem için uygunluğu.
 export function evaluateCampaignForCard(campaign, card, ctx) {
+  if (eligibilityUnresolved(campaign)) return { eligible: false, value: false, reasons: [UNRESOLVED_REASON] };
   const res = resolveCampaignEligibility(campaign);
   if (res.status === 'invalid') return { eligible: false, value: false, reasons: [INVALID_REASON(res.errors)] };
   const r = evaluateRule(res.rule, ctx || buildEligibilityContext({ cards: card ? [card] : [] }), card);
@@ -227,6 +261,7 @@ export function evaluateCampaignForCard(campaign, card, ctx) {
 
 // Aday ön-elemesi: kart koşulu bu kartı kesin dışlamıyorsa kampanya bu kart için değerlendirilir.
 export function campaignTargetsCard(campaign, card, ctx) {
+  if (eligibilityUnresolved(campaign)) return false;
   const res = resolveCampaignEligibility(campaign);
   if (res.status === 'invalid') return false;
   const r = evaluateRule(res.rule, ctx || buildEligibilityContext({ cards: card ? [card] : [] }), card, { cardOnly: true });
@@ -324,13 +359,14 @@ export function checkEligibilityRule(rule, { catalog = null, path = '$', strict 
     } else if (op === 'not') walk(arg, `${p}.not`, depth + 1);
     else if (op === 'always') { if (arg !== true) errors.push(`${p}.always: must be true`); }
     else if (op === 'payWith' || op === 'owns') {
-      if (!arg || typeof arg !== 'object' || Array.isArray(arg) || (!hasKey(arg, 'cards') && !hasKey(arg, 'banks'))) { errors.push(`${p}.${op}: cards and/or banks required`); return; }
-      const extra = Object.keys(arg).filter(k => k !== 'cards' && k !== 'banks');
+      if (!arg || typeof arg !== 'object' || Array.isArray(arg) || (!hasKey(arg, 'cards') && !hasKey(arg, 'banks') && !hasKey(arg, 'families'))) { errors.push(`${p}.${op}: cards, banks and/or families required`); return; }
+      const extra = Object.keys(arg).filter(k => k !== 'cards' && k !== 'banks' && k !== 'families');
       if (extra.length) errors.push(`${p}.${op}: unknown key(s) ${extra.join(', ')}`);
-      for (const k of ['cards', 'banks']) if (hasKey(arg, k)) {
+      for (const k of ['cards', 'banks', 'families']) if (hasKey(arg, k)) {
         if (!Array.isArray(arg[k]) || !arg[k].length || !arg[k].every(v => typeof v === 'string' && CODE.test(v))) { errors.push(`${p}.${op}.${k}: non-empty array of codes`); continue; }
         if (catalog && k === 'cards') for (const c of arg[k]) if (!catalog.cardProducts.some(x => x.code === c)) warnings.push(`${p}.${op}.cards: unknown card product ${c}`);
         if (catalog && k === 'banks') for (const b of arg[k]) if (!catalog.banks.some(x => x.code === b)) warnings.push(`${p}.${op}.banks: unknown bank ${b}`);
+        if (catalog && k === 'families') for (const f of arg[k]) if (!(catalog.cardFamilies || CARD_ELIGIBILITY_FAMILIES).some(x => x.code === f)) warnings.push(`${p}.${op}.families: unknown card family ${f}`);
       }
     } else if (op === 'attr') {
       if (!arg || typeof arg !== 'object' || Array.isArray(arg) || typeof arg.dim !== 'string' || !CODE.test(arg.dim) || !Array.isArray(arg.in) || !arg.in.length || !arg.in.every(v => typeof v === 'string' && CODE.test(v))

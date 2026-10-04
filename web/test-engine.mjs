@@ -174,8 +174,8 @@ console.log('fuzzy merchant tests: OK');
 
 const wrongCategory = resolveMerchantInput(initialCampaigns, 'Günaydın', 'e-ticaret');
 assert.equal(wrongCategory.needsCategorySelection, false);
-assert.equal(wrongCategory.effectiveCategory, 'restoran');
-assert.ok(wrongCategory.notices.some(x => x.includes('Kategori uyuşmazlığı')));
+// v1.5.0: manuel kategori yetkilidir; işyeri çıkarımı yalnız "Otomatik" iken kategori belirler.
+assert.equal(wrongCategory.effectiveCategory, 'e-ticaret');
 const autoTypo = resolveMerchantInput(initialCampaigns, 'Günaydn', 'auto');
 assert.equal(autoTypo.effectiveCategory, 'restoran');
 console.log('input resolution tests: OK');
@@ -193,9 +193,10 @@ const manual = resolveMerchantInput(noisyCampaigns, 'Bilinmeyen Merchant', 'mark
 assert.equal(manual.needsCategorySelection, false);
 assert.equal(manual.effectiveCategory, 'market');
 
-// Güvenilir merchant sözlüğü açık çelişkiyi düzeltmeye devam eder.
+// v1.5.0: güvenilir sözlük de manuel seçimi değiştirmez; yalnız bilgi notu verir.
 const migrosWrong = resolveMerchantInput(initialCampaigns, 'Migros', 'e-ticaret');
-assert.equal(migrosWrong.effectiveCategory, 'market');
+assert.equal(migrosWrong.effectiveCategory, 'e-ticaret');
+assert.ok(migrosWrong.notices.some(n => n.includes('market')));
 console.log('v1.0.6 merchant category tests: OK');
 
 // v1.0.8 regression: bilinmeyen bir restoran adı genel restoran kampanyalarını engellememeli.

@@ -1,12 +1,14 @@
 import { initialCards, initialCampaigns, initialStates } from './bootstrap-data.js';
-import { recommend, money, ensureReset, freshness, ruleMinSpend, resolveMerchantInput, resolveSegmentCampaign } from './engine.js';
+import { recommend, money, ensureReset, freshness, ruleMinSpend, resolveMerchantInput, resolveSegmentCampaign, NETWORK_MERCHANT_WARNING } from './engine.js';
 import { calculateLoyalty, campaignRewardLabel, THY_STATUSES, QNB_SEGMENTS, WINGS_TIERS, MAXIMILES_BANDS, CRYSTAL_BANDS, CRYSTAL_CARD_TYPES, TEB_TIERS, formatNumber } from './loyalty.js';
-import { CAMPAIGN_BROWSER_CATEGORIES, groupCampaignsByCard, merchantScopeInfo, paymentScopeInfo } from './campaign-browser.js';
-import { cloudConfigured, cloudConfigSummary, sessionInfo, signUp, signIn, signOut, testCloudConnection, fetchCloudCatalog, fetchCloudUserState, saveCloudUserState, triggerCloudRefresh, requestPasswordReset, updatePassword, consumeAuthRedirect, getAccessToken } from './cloud-sync.js';
+import { CAMPAIGN_BROWSER_CATEGORIES, groupCampaignsByCard, catalogSecondary, merchantScopeInfo, paymentScopeInfo } from './campaign-browser.js';
+import { cloudConfigured, cloudConfigSummary, sessionInfo, signUp, signIn, signOut, testCloudConnection, fetchCloudCatalog, fetchCloudUserState, saveCloudUserState, triggerCloudRefresh, requestPasswordReset, updatePassword, captureAuthCallback, getAccessToken } from './cloud-sync.js';
 import { BUNDLED_PROFILE_CATALOG, PROFILE_CATALOG_SCHEMA } from './profile-catalog.js';
 import { effectiveAttributes, optionDisplayLabel, attributeConfirmationStatus, currentCriteria, REQUIRES_RECONFIRMATION } from './profile-criteria.js';
 import { normalizeLegacySettings } from './legacy-option-aliases.js';
-import { emptyProfile, normalizeProfile, applicableDimensions, toggleBank, toggleCard, setAttribute, confirmAttribute, confirmPendingAttributes, isProfileComplete, canCompleteOnboarding, profileToEngineCards, profileToLegacySettings, legacyToProfilePrefill, diffProfiles, banksAffectedByAttributeChange, nextOnboardingStep, previousOnboardingStep } from './profile-model.js';
+import { bankCoverage, allBankCoverage, supportBadge, recommendationCoverageNote } from './coverage.js';
+import { normalizeBankRequestName } from './bank-requests.js';
+import { legacyCardFields, banksWithoutCardProducts, emptyProfile, normalizeProfile, applicableDimensions, toggleBank, toggleCard, setAttribute, confirmAttribute, confirmPendingAttributes, isProfileComplete, canCompleteOnboarding, profileToEngineCards, profileToLegacySettings, legacyToProfilePrefill, diffProfiles, banksAffectedByAttributeChange, nextOnboardingStep, previousOnboardingStep } from './profile-model.js';
 import { createProfileStore, SchemaMissingError, readProfileCache, writeProfileCache } from './profile-store.js';
 import { buildEligibilityContext, attributesFromLegacySettings, campaignTargetsCard } from './eligibility.js';
 import { mergeCatalogWithCore as mergeCatalogWithCoreRules, reconcileCampaignStates as reconcileStatesRules, invalidateSegmentDependentStates as invalidateSegmentRules, applyCloudRow, isLocalServerMode } from './catalog-state.js';
@@ -49,7 +51,7 @@ function ensureCoreBenefitsInData() {
 
 let lastQueryDebug = null;
 let runtimeAppVersion = APP_VERSION;
-let campaignBrowserState = { category: 'all', search: '', onlyComplete: false, selectedKey: null };
+let campaignBrowserState = { category: 'all', search: '', selectedKey: null };
 
 function diagnosticEval(e) {
   if (!e) return null;
@@ -131,12 +133,6 @@ function load(key = storageKey) {
   } catch { return seed(); }
 }
 
-function selectedLabel(items, value, fallbackValue) {
-  return (items.find(x => x.value === value) || items.find(x => x.value === fallbackValue) || items[0])?.cardLabel
-    || (items.find(x => x.value === value) || items.find(x => x.value === fallbackValue) || items[0])?.label
-    || '';
-}
-
 function syncCardSegmentsFromSettings() {
   // v1.4: hesaba bağlı profil varsa kartlar ve segmentler YALNIZ profilden gelir (profil her zaman kazanır).
   if (account.mode === 'profile' && account.profile) {
@@ -147,20 +143,12 @@ function syncCardSegmentsFromSettings() {
     return;
   }
   if (account.mode === 'profile') { data.cards = []; return; }
+  // v1.5.0: ürüne özel dal yok — kart alanları ana veriden (boyut ↔ ayar anahtarı ↔ kart ürünü) türetilir.
+  const defaults = seed().settings;
   for (const card of data.cards || []) {
-    if (card.cardProductId === 'qnb-ms-private') card.segment = selectedLabel(QNB_SEGMENTS, data.settings.qnbSegment, 'private');
-    else if (card.cardProductId === 'akbank-wings-elite' || card.cardProductId === 'akbank-wings-black') card.segment = selectedLabel(WINGS_TIERS, data.settings.wingsTier, 'black_plus').replace(/^Standart\s*\//, 'Classic /');
-    else if (card.cardProductId === 'is-maximiles-black') {
-      card.segment = selectedLabel(MAXIMILES_BANDS, data.settings.maximilesBand, 'band_3');
-      card.segmentLabel = optionDisplayLabel(BUNDLED_PROFILE_CATALOG, 'maximiles_band', card.segment);
-    }
-    else if (card.cardProductId === 'ykb-crystal') {
-      // Segment her zaman varlık seviyesidir; kart tipi ayrı tutulur (Metal Crystal artık bir segment değil).
-      card.segment = selectedLabel(CRYSTAL_BANDS, data.settings.crystalBand, 'band_1');
-      card.segmentLabel = optionDisplayLabel(BUNDLED_PROFILE_CATALOG, 'crystal_band', card.segment);
-      card.cardType = ['crystal', 'metal_crystal', 'crystal_and_metal'].includes(data.settings.crystalCardType) ? data.settings.crystalCardType : 'crystal';
-    }
-    else if (card.cardProductId === 'teb-infinite') card.segment = selectedLabel(TEB_TIERS, data.settings.tebTier, 'ultra');
+    const f = legacyCardFields(card.cardProductId, data.settings, BUNDLED_PROFILE_CATALOG, defaults);
+    if (f.segment != null) { card.segment = f.segment; card.segmentLabel = f.segmentLabel; }
+    if (f.cardType !== undefined) card.cardType = f.cardType;
   }
 }
 
@@ -181,7 +169,7 @@ function cardForCampaign(campaign) {
 
 function effectiveCampaign(campaign) {
   const card = cardForCampaign(campaign);
-  return card ? resolveSegmentCampaign(campaign, card, new Date()) : resolveSegmentCampaign(campaign, { segment: null }, new Date());
+  return card ? resolveSegmentCampaign(campaign, card, new Date(), eligibilityContext()) : resolveSegmentCampaign(campaign, { segment: null }, new Date(), eligibilityContext());
 }
 
 function syncResets() {
@@ -332,7 +320,7 @@ function renderCampaignDetail(groups) {
   if (!panel) return;
   let selected = null;
   for (const group of groups) {
-    for (const c of group.campaigns) {
+    for (const c of [...group.campaigns, ...(group.informational || [])]) {
       if (campaignBrowseKey(group.card, c) === campaignBrowserState.selectedKey) {
         selected = {card: group.card, campaign: c};
         break;
@@ -399,37 +387,47 @@ function renderCampaigns() {
   if (categoryEl) categoryEl.value = campaignBrowserState.category;
   const searchEl = $('#campaignBrowseSearch');
   if (searchEl && searchEl.value !== campaignBrowserState.search) searchEl.value = campaignBrowserState.search;
-  const completeEl = $('#campaignBrowseOnlyComplete');
-  if (completeEl) completeEl.checked = campaignBrowserState.onlyComplete;
-
+  const ctx = eligibilityContext();
+  const now = new Date();
+  const searchOk = c => browseSearchMatch(c, campaignBrowserState.search);
   let groups = groupCampaignsByCard({
     campaigns: data.campaigns,
     cards: data.cards,
     category: campaignBrowserState.category,
-    resolveCampaign: (raw, card, now) => resolveSegmentCampaign(raw, card, now),
-    now: new Date(),
-    eligibilityContext: eligibilityContext()
+    resolveCampaign: (raw, card, when, cx) => resolveSegmentCampaign(raw, card, when, cx),
+    now,
+    eligibilityContext: ctx
   }).map(group => ({
     ...group,
-    campaigns: group.campaigns.filter(c => (!campaignBrowserState.onlyComplete || c.rulesComplete !== false) && browseSearchMatch(c, campaignBrowserState.search))
+    campaigns: group.campaigns.filter(searchOk),
+    informational: (group.informational || []).filter(searchOk)
   }));
+  // v1.5.0: global katalogdaki ama kartlarına kesin uygulanmayan kayıtlar (ayrı, kapalı bölümler).
+  const secondary = catalogSecondary({ campaigns: data.campaigns, cards: data.cards, category: campaignBrowserState.category, now, eligibilityContext: ctx,
+    bankCodes: account.mode === 'profile' && account.profile ? account.profile.banks : null });
+  const unresolved = secondary.unresolved.filter(searchOk);
+  const otherCards = secondary.otherCards.filter(searchOk);
 
   const total = groups.reduce((n,g) => n + g.campaigns.length, 0);
   const categoryLabel = CAMPAIGN_BROWSER_CATEGORIES.find(([v]) => v === campaignBrowserState.category)?.[1] || 'Kategori';
   const summary = $('#campaignBrowseSummary');
-  if (summary) summary.innerHTML = `<strong>${esc(categoryLabel)}:</strong> ${esc(total)} kart-kampanya eşleşmesi gösteriliyor. Aynı kampanya birden fazla kartında geçerliyse her kart grubunda ayrı görünür.`;
+  if (summary) summary.innerHTML = `<strong>${esc(categoryLabel)}:</strong> kartlarında kesin geçerli ${esc(total)} kart-kampanya eşleşmesi. Aynı kampanya birden fazla kartında geçerliyse her kart grubunda ayrı görünür. Bilgi amaçlı ve uygunluğu belirsiz kayıtlar aşağıda ayrı bölümlerdedir.`;
 
-  const currentKeys = new Set(groups.flatMap(g => g.campaigns.map(c => campaignBrowseKey(g.card,c))));
+  const currentKeys = new Set(groups.flatMap(g => [...g.campaigns, ...g.informational].map(c => campaignBrowseKey(g.card,c))));
   if (campaignBrowserState.selectedKey && !currentKeys.has(campaignBrowserState.selectedKey)) campaignBrowserState.selectedKey = null;
 
+  const secondaryItem = c => `<li class="secondary-campaign"><strong>${esc(c.title)}</strong> <span class="muted">· ${esc(c.bank || '')}</span>${(c.eligibilityResolution?.reasons || [])[0] ? `<div class="muted small">${esc(c.eligibilityResolution.reasons[0])}</div>` : ''}${c.sourceUrl ? ` <a class="source-link" href="${esc(c.sourceUrl)}" target="_blank" rel="noopener">Resmi koşullar ↗</a>` : ''}</li>`;
   const container = $('#campaignList');
   container.innerHTML = groups.map(group => `<section class="campaign-card-group">
     <div class="campaign-card-group-head">
       <div><div class="bank">${esc(group.card.bank)}</div><h3>${esc(group.card.name)}</h3><div class="muted">${esc(group.card.segmentLabel || group.card.segment)}</div></div>
       <span class="campaign-count-pill">${esc(group.campaigns.length)} kampanya</span>
     </div>
-    <div class="campaign-browser-items">${group.campaigns.length ? group.campaigns.map(c => campaignCompactHtml(group.card,c)).join('') : '<div class="empty-card-campaigns">Bu kategoride aktif kampanya bulunamadı.</div>'}</div>
-  </section>`).join('');
+    <div class="campaign-browser-items">${group.campaigns.length ? group.campaigns.map(c => campaignCompactHtml(group.card,c)).join('') : '<div class="empty-card-campaigns">Bu kategoride kesin geçerli aktif kampanya bulunamadı.</div>'}</div>
+    ${group.informational.length ? `<details class="campaign-secondary info-secondary"><summary>Bilgi amaçlı (${esc(group.informational.length)}) — koşulları tam çözülemedi</summary><div class="campaign-browser-items">${group.informational.map(c => campaignCompactHtml(group.card,c)).join('')}</div></details>` : ''}
+  </section>`).join('')
+  + (unresolved.length ? `<details class="campaign-secondary unresolved-secondary"><summary>Kart uygunluğu doğrulanamayan kampanyalar (${esc(unresolved.length)})</summary><p class="muted small">Bankalarının resmi kaynağında bulundu; hangi kartlarda geçerli olduğu metinde açık değil. Hiçbir kartın için kesin uygun sayılmaz.</p><ul>${unresolved.map(secondaryItem).join('')}</ul></details>` : '')
+  + (otherCards.length ? `<details class="campaign-secondary other-cards-secondary"><summary>Bankalarının diğer kartlarına ait kampanyalar (${esc(otherCards.length)})</summary><p class="muted small">Bu kampanyalar sahip olmadığın veya uygulamada henüz tanımlı olmayan kartlar için.</p><ul>${otherCards.map(secondaryItem).join('')}</ul></details>` : '');
 
   $$('[data-browse-select]').forEach(btn => btn.addEventListener('click', () => {
     campaignBrowserState.selectedKey = btn.dataset.browseSelect;
@@ -446,8 +444,6 @@ function wireCampaignBrowser() {
   if (cat) cat.addEventListener('change', () => { campaignBrowserState.category = cat.value; campaignBrowserState.selectedKey = null; renderCampaigns(); });
   const search = $('#campaignBrowseSearch');
   if (search) search.addEventListener('input', () => { campaignBrowserState.search = search.value; campaignBrowserState.selectedKey = null; renderCampaigns(); });
-  const complete = $('#campaignBrowseOnlyComplete');
-  if (complete) complete.addEventListener('change', () => { campaignBrowserState.onlyComplete = complete.checked; campaignBrowserState.selectedKey = null; renderCampaigns(); });
 }
 
 function editLimit(id) {
@@ -606,7 +602,7 @@ function renderRecommendation() {
         resolution: resolvedInput,
         aborted: true, abortReason: `Kategori güvenle belirlenemedi.${hint}`
       });
-      return alert(`Kategori güvenle belirlenemedi. Lütfen kategoriyi seç.${hint}`);
+      return alert(String(merchant || '').trim() ? `Kategori güvenle belirlenemedi. Lütfen kategoriyi seç.${hint}` : 'İşyeri girmeden sorgulamak için bir kategori seç.');
     }
     const category = resolvedInput.effectiveCategory;
     const loyaltyCtx = { amount, merchant, category, locationScope, paymentChannel };
@@ -635,6 +631,8 @@ function renderRecommendation() {
         eligible: (r.all || []).map(diagnosticEval),
         potentials: (r.potentials || []).map(diagnosticEval),
         informational: (r.informational || []).map(diagnosticEval),
+        merchantConditional: (r.merchantConditional || []).map(diagnosticEval),
+        merchantSpecific: (r.merchantSpecific || []).map(diagnosticEval),
         rejected: (r.rejected || []).map(diagnosticEval)
       }))
     });
@@ -673,6 +671,9 @@ function renderRecommendation() {
       }
       const fresh = b.freshness.status === 'stale' ? ` · ⚠ ${b.freshness.label}` : ` · ${b.freshness.label}`;
       const warnings = b.inspection.warnings.length ? `<div class="condition-box"><strong>Kontrol et:</strong> ${b.inspection.warnings.map(esc).join(' ')}</div>` : '';
+      // Koşullu kademeler (seçilmemiş segmente bağlı): yalnız bilgi — tutara ve sıralamaya KATILMAZ.
+      const condRates = (b.conditionalRewards || []).map(x => x.rewardRule?.rate).filter(r => Number.isFinite(r));
+      const conditionalHtml = condRates.length ? `<div class="muted conditional-rewards">Segmentini seçersen daha yüksek olabilir: ${condRates.map(r => `%${formatNumber(r * 100)}`).join(', ')} (Profil › Müşteri Profili)</div>` : '';
 
       return `
         <article class="result-card ${rank === 1 ? 'top' : ''}">
@@ -682,6 +683,7 @@ function renderRecommendation() {
             <div>${esc(b.campaign.title)}</div>
             <div class="rule-line">${esc(ruleDetailBits(b.campaign))}</div>
             <div class="result-reward ${cls}">${rewardLine}</div>
+            ${conditionalHtml}
             <div class="muted">Kalan: ${b.state.remainingLimit == null ? 'Bilinmiyor' : campaignRewardLabel(b.campaign, b.state.remainingLimit)}${fresh}</div>
             ${loyaltyHtml(r.card, loyaltyCtx)}
             ${warnings}
@@ -691,8 +693,15 @@ function renderRecommendation() {
 
     const potentials = results.flatMap(r => (r.potentials || []).map(p => ({ r, p })));
     const potentialHtml = potentials.length
-      ? `<div class="potential-section"><h3>Potansiyel kampanyalar</h3><p class="muted">Mevcut işlem kampanyayı henüz sağlamıyor; aşağıda hangi koşulun eksik olduğu gösteriliyor.</p>${potentials.map(({r,p}) => potentialCardHtml(r,p)).join('')}</div>`
+      ? `<div class="potential-section"><h3>Potansiyel kampanyalar</h3><p class="muted">Aynı işlem bağlamında yalnız tutar eşiği eksik; tutarı ayarlarsan geçerli olur.</p>${potentials.map(({r,p}) => potentialCardHtml(r,p)).join('')}</div>`
       : '';
+
+    // v1.5.0: işyeri girilmeden yapılan kategori sorgusu — üye işyeri ağına bağlı KOŞULLU sonuçlar (garanti değil)
+    // ve belirli markalara özel fırsatlar ayrı bölümlerde; hiçbiri kesin kazanan olarak sıralanmaz.
+    const condMerchants = results.flatMap(r => (r.merchantConditional || []).map(e => ({ r, e })));
+    const condMerchantHtml = condMerchants.length ? `<div class="info-section merchant-conditional-section"><h3>Üye işyerine bağlı koşullu sonuçlar</h3><p class="muted">${esc(NETWORK_MERCHANT_WARNING)}</p>${condMerchants.map(({r,e}) => `<article class="result-card info-card merchant-conditional-card"><div class="rank">~</div><div class="result-body"><div class="info-label">KOŞULLU · GARANTİ DEĞİL</div><strong>${esc(r.card.bank)} — ${esc(r.card.name)}</strong><div>${esc(e.campaign.title)}</div><div class="rule-line">${esc(ruleDetailBits(e.campaign))}</div><div class="result-reward warn-text">İşyeri dahilse teorik en fazla ${campaignRewardLabel(e.campaign, e.theoreticalReward)}</div>${e.campaign.sourceUrl ? `<a class="source-link" href="${esc(e.campaign.sourceUrl)}" target="_blank" rel="noopener">Üye işyeri listesini aç ↗</a>` : ''}</div></article>`).join('')}</div>` : '';
+    const brandSpecific = results.flatMap(r => (r.merchantSpecific || []).map(e => ({ r, e })));
+    const brandHtml = brandSpecific.length ? `<div class="info-section merchant-specific-section"><h3>Bu kategoride işyeri özel fırsatlar</h3><p class="muted">Belirli işyerlerinde geçerli; işyeri adını girersen kesin hesaplanır.</p>${brandSpecific.map(({r,e}) => `<article class="result-card info-card merchant-specific-card"><div class="rank">i</div><div class="result-body"><div class="info-label">İŞYERİ ÖZEL</div><strong>${esc(r.card.bank)} — ${esc(r.card.name)}</strong><div>${esc(e.campaign.title)}</div><div class="rule-line">${esc(merchantScopeInfo(e.campaign).text)}</div>${e.rewardIfMerchantMatches > 0 ? `<div class="muted">Bu işyerinde teorik: ${campaignRewardLabel(e.campaign, e.rewardIfMerchantMatches)}</div>` : ''}</div></article>`).join('')}</div>` : '';
 
     const infos = results.flatMap(r => (r.informational || []).map(i => ({r,i})));
     const infoHtml = infos.length ? `<div class="info-section"><h3>İlgili diğer kampanyalar</h3><p class="muted">Bu kampanyalar resmi kaynakta bulundu ancak otomatik hesap için tüm koşullar güvenle çözümlenemedi. Kaybolmazlar; resmi detayı açıp kontrol edebilirsin.</p>${infos.map(({r,i}) => `<article class="result-card info-card"><div class="rank">i</div><div class="result-body"><div class="info-label">BİLGİ AMAÇLI</div><strong>${esc(r.card.bank)} — ${esc(r.card.name)}</strong><div>${esc(i.campaign.title)}</div><div class="rule-line">${esc(rewardRuleSummary(i.campaign))}</div>${i.infoNote ? `<div class="detail-warning">${esc(i.infoNote)}</div>` : ''}${i.campaign.termsSummary ? `<div class="muted">${esc(i.campaign.termsSummary)}</div>` : ''}${i.campaign.sourceUrl ? `<a class="source-link" href="${esc(i.campaign.sourceUrl)}" target="_blank" rel="noopener">Resmi koşulları aç ↗</a>` : ''}</div></article>`).join('')}</div>` : '';
@@ -700,7 +709,9 @@ function renderRecommendation() {
     const inputNoticeHtml = inputNotices.length
       ? `<div class="input-notice"><strong>Girdi kontrolü:</strong> ${inputNotices.map(esc).join(' ')}</div>`
       : '';
-    $('#recommendResults').innerHTML = inputNoticeHtml + activeHtml + potentialHtml + infoHtml;
+    const coverageNote = account.mode === 'profile' && account.profile ? recommendationCoverageNote(account.profile.banks, coverageCatalog(), { registry: sourceRegistry() }) : null;
+    const coverageHtml = coverageNote ? `<div class="coverage-note muted small">${esc(coverageNote)} <a href="#/profil/info">Ayrıntı</a></div>` : '';
+    $('#recommendResults').innerHTML = inputNoticeHtml + coverageHtml + activeHtml + condMerchantHtml + brandHtml + potentialHtml + infoHtml;
   });
 }
 
@@ -728,12 +739,46 @@ function showRoute() {
 }
 
 function wireNav() {
-  window.addEventListener('hashchange', showRoute);
+  window.addEventListener('hashchange', () => {
+    // v1.4.4: açık uygulamaya hash ile gelen Supabase dönüşü (aynı belge içinde gezinme) → yakala, temizle, yeniden yükle.
+    if (/(^|[#&?/])(access_token|error_code|error)=/.test(location.hash)) {
+      const cb = captureAuthCallback(location);
+      if (cb) {
+        try { sessionStorage.setItem(AUTH_CALLBACK_KEY, JSON.stringify(cb)); } catch {}
+        const target = cb.kind === 'session' ? (cb.type === 'recovery' ? '#/profil/hesap' : DEFAULT_ROUTE) : '#/giris';
+        history.replaceState(null, '', `${location.pathname}${target}`);
+        location.reload();
+        return;
+      }
+    }
+    showRoute();
+  });
   if (!location.hash) history.replaceState(null, '', DEFAULT_ROUTE);
   showRoute();
 }
 
+// v1.5.0: kaynak kaydı (catalog.meta.sourceRegistry) — kapsam türetmesi bunu kullanır; yoksa beyan üst sınır olarak okunur.
+function sourceRegistry() { return data?.meta?.catalogMeta?.sourceRegistry || null; }
+function coverageCatalog() { return account.catalog || BUNDLED_PROFILE_CATALOG; }
+
+const FACET_TR = { full: 'Tam', partial: 'Kısmi', none: 'Yok', coming: 'Yakında' };
+const FRESH_TR = { verified: 'Güncel', last_known: 'Son başarılı kayıt', stale: 'Eski', unverified: 'Doğrulanmadı' };
+const CONF_TR = { high: 'yüksek güven', medium: 'orta güven', low: 'düşük güven', unknown: 'kanıt yok' };
+const LEVEL_TR = { full: 'Tam destek', partial: 'Kısmi destek', profile_only: 'Yalnız profil', coming: 'Kampanyalar yakında', unsupported: 'Henüz desteklenmiyor' };
+
+function renderCoverageInfo() {
+  const el = $('#coverageInfo'); if (!el) return;
+  const catalog = coverageCatalog();
+  const rows = allBankCoverage(catalog, { registry: sourceRegistry() });
+  el.innerHTML = `<table class="coverage-table"><thead><tr><th>Banka</th><th>Durum</th><th>Kartlar</th><th>Ayrıcalıklar</th><th>Kampanyalar</th><th>Kaynak</th></tr></thead><tbody>${rows.map(c => {
+    const name = catalog.banks.find(b => b.code === c.bankCode)?.name || c.bankCode;
+    const last = c.lastSuccessfulCrawl ? formatRefreshTime(c.lastSuccessfulCrawl) : '—';
+    return `<tr data-bank="${esc(c.bankCode)}" data-level="${esc(c.level)}"><td>${esc(name)}</td><td>${esc(LEVEL_TR[c.level])}</td><td>${esc(FACET_TR[c.facets.cardProducts])}</td><td>${esc(FACET_TR[c.facets.coreBenefits])}</td><td>${esc(FACET_TR[c.facets.campaigns])}</td><td>${esc(c.facets.campaignCrawler === 'full' ? `${FRESH_TR[c.freshness]} · ${last} · kapsam ${CONF_TR[c.sourceConfidence] || CONF_TR.unknown}` : 'Tarayıcı yok')}</td></tr>`;
+  }).join('')}</tbody></table>`;
+}
+
 function renderInfo() {
+  renderCoverageInfo();
   const rowsEl = $('#infoRows');
   if (rowsEl) {
     const rows = buildInfoRows({
@@ -1193,23 +1238,41 @@ function activateUserData(uid) {
 }
 
 async function initAccount() {
-  const redirect = consumeAuthRedirect(location.hash);
-  if (redirect) {
-    history.replaceState(null, '', redirect.type === 'recovery' ? '#/profil/hesap' : DEFAULT_ROUTE);
-    if (redirect.type === 'recovery') account.notice = 'Yeni şifreni bu ekrandan belirleyebilirsin.';
+  if (authCallback?.kind === 'session') {
+    if (authCallback.type === 'recovery') account.notice = 'Yeni şifreni bu ekrandan belirleyebilirsin.';
+    else if (authCallback.type === 'signup') showPwaToast('E-posta adresin doğrulandı.');
   }
   if (!cloudConfigured()) { account = { ...account, mode: 'legacy', state: 'ready' }; applyModeUi(); showRoute(); return; }
   account = { ...account, mode: 'profile', state: 'loading' };
   applyModeUi(); showRoute();
   let info = { signedIn: false };
   try { info = await sessionInfo(); } catch { info = { signedIn: false }; }
-  if (!info.signedIn) { data.cards = []; setAccountState('signed_out', { userId: null, email: null, profile: null }); return; }
+  if (!info.signedIn) {
+    data.cards = []; setAccountState('signed_out', { userId: null, email: null, profile: null });
+    const st = $('#authStatus');
+    if (st && authCallback?.kind === 'error') {
+      st.textContent = /expired|otp/i.test(`${authCallback.code} ${authCallback.description}`)
+        ? 'Doğrulama bağlantısının süresi dolmuş veya bağlantı daha önce kullanılmış. Hesabın doğrulanmış olabilir: e-posta ve şifrenle giriş yap. Gerekirse “Şifremi unuttum” ile yeni bağlantı iste.'
+        : 'Doğrulama bağlantısı geçersiz. E-posta ve şifrenle giriş yapmayı dene; olmazsa yeni bağlantı iste.';
+    } else if (st && (authCallback?.kind === 'signin_required' || authCallback?.kind === 'session')) {
+      st.textContent = 'E-posta adresin doğrulandı. Devam etmek için giriş yap.';
+    }
+    return;
+  }
   await enterSignedIn(info);
+  // Şifre sıfırlama dönüşü: yükleme ekranı (#/durum) ara adresi ezdiği için, profil hazır olunca Hesap ekranına geç.
+  if (authCallback?.kind === 'session' && authCallback.type === 'recovery' && account.state === 'ready' && location.hash !== '#/profil/hesap') {
+    history.replaceState(null, '', `${location.pathname}#/profil/hesap`);
+    showRoute();
+  }
 }
 
 async function enterSignedIn(info) {
   account = { ...account, mode: 'profile', userId: info.userId, email: info.email, profile: null, serverProfile: null, error: null };
   activateUserData(info.userId);
+  // v1.5.0: katalog GLOBALDİR; kullanıcıya özel yerel veriye geçince güncel global katalog yeniden yüklenir
+  // (aksi halde ilk girişte yalnız paketli çekirdek kayıtlar görünürdü).
+  loadLiveCatalog();
   const cached = readProfileCache(localStorage, info.userId);
   const cacheReady = cached?.profile && isProfileComplete(cached.profile);
   if (cacheReady) {
@@ -1337,8 +1400,40 @@ function toggleRow({ action, code, on, title, subtitle = '' }) {
 
 function banksHtml(profile, catalog) {
   const banks = [...catalog.banks].sort((a, b) => (a.sortOrder ?? 100) - (b.sortOrder ?? 100));
-  return `<div class="toggle-list">${banks.map(b => toggleRow({ action: 'bank', code: b.code, on: profile.banks.includes(b.code), title: b.name,
-    subtitle: `${catalog.cardProducts.filter(c => c.bankCode === b.code).length} kart ürünü` })).join('')}</div>`;
+  const registry = sourceRegistry();
+  return `<div class="toggle-list">${banks.map(b => {
+    const n = catalog.cardProducts.filter(c => c.bankCode === b.code).length;
+    const badge = supportBadge(bankCoverage(b.code, catalog, { registry }).level);
+    return toggleRow({ action: 'bank', code: b.code, on: profile.banks.includes(b.code), title: b.name,
+      subtitle: [n ? `${n} kart ürünü` : 'Kart listesi hazırlanıyor', badge].filter(Boolean).join(' · ') });
+  }).join('')}</div>${bankRequestHtml()}`;
+}
+
+// v1.5.0 — "Bankam listede yok": yalnız destek İSTEĞİ oluşturur; banka/kart/kampanya oluşturmaz.
+function bankRequestHtml() {
+  if (account.mode !== 'profile' || !account.userId) return '';
+  return `<details class="bank-request"><summary>Bankam listede yok</summary>
+    <p class="muted small">Bankanın adını yaz; en çok istenen bankalar önceliklendirilir. Bu istek profilini veya banka listesini değiştirmez.</p>
+    <div class="bank-request-row"><input type="text" class="bank-request-name" maxlength="80" placeholder="ör. ING, Kuveyt Türk" aria-label="Banka adı">
+    <button type="button" class="secondary" data-action="bank-request-send">Gönder</button></div>
+    <p class="muted small bank-request-status" role="status"></p></details>`;
+}
+
+async function sendBankRequest(btn) {
+  const box = btn.closest('.bank-request');
+  const input = box?.querySelector('.bank-request-name');
+  const st = box?.querySelector('.bank-request-status');
+  const name = String(input?.value || '').trim();
+  if (!normalizeBankRequestName(name)) { if (st) st.textContent = 'Geçerli bir banka adı yaz.'; return; }
+  if (!account.store) { if (st) st.textContent = 'Sunucuya bağlanılamadı; daha sonra tekrar dene.'; return; }
+  btn.disabled = true;
+  try {
+    await account.store.requestBankSupport(account.userId, name);
+    if (st) st.textContent = 'Teşekkürler, isteğin kaydedildi.';
+    if (input) input.value = '';
+  } catch (e) {
+    if (st) st.textContent = e?.name === 'SchemaMissingError' ? 'Banka istekleri sunucuda henüz etkin değil.' : `Kaydedilemedi: ${e.message}`;
+  } finally { btn.disabled = false; }
 }
 
 function cardsHtml(profile, catalog, { showAllBanks = false } = {}) {
@@ -1346,6 +1441,7 @@ function cardsHtml(profile, catalog, { showAllBanks = false } = {}) {
   if (!banks.length) return '<p class="muted">Önce banka seç.</p>';
   return banks.map(b => {
     const cards = catalog.cardProducts.filter(c => c.bankCode === b.code).sort((x, y) => (x.sortOrder ?? 100) - (y.sortOrder ?? 100));
+    if (!cards.length) return `<div class="bank-group" data-bank="${esc(b.code)}"><h4>${esc(b.name)}</h4><p class="muted small no-cards">Bu banka için kart listesi henüz hazırlanmadı. Bankayı profilinde tutabilirsin; kartlar ve kampanyalar eklendiğinde burada görünecek.</p></div>`;
     return `<div class="bank-group"><h4>${esc(b.name)}</h4><div class="toggle-list">${cards.map(c => toggleRow({ action: 'card', code: c.code, on: profile.cards.includes(c.code), title: c.name })).join('')}</div></div>`;
   }).join('');
 }
@@ -1426,7 +1522,7 @@ function renderOnboarding() {
   $('#onbBack').hidden = step === 'banks';
   $('#onbNext').hidden = step === 'review';
   $('#onbFinish').hidden = step !== 'review';
-  $('#onbFinish').disabled = !canCompleteOnboarding(draft);
+  $('#onbFinish').disabled = !canCompleteOnboarding(draft, account.catalog);
 }
 
 function reviewHtml(profile, catalog) {
@@ -1440,6 +1536,7 @@ function reviewHtml(profile, catalog) {
 function wireOnboarding() {
   $('#onboardingBody').addEventListener('click', e => {
     const el = e.target.closest('[data-action]'); if (!el) return;
+    if (el.dataset.action === 'bank-request-send') { sendBankRequest(el); return; }
     account.draft = applyEditorAction(account.draft || emptyProfile(), el, account.catalog);
     $('#onboardingStatus').textContent = '';
     renderOnboarding();
@@ -1456,7 +1553,7 @@ function wireOnboarding() {
   $('#onbFinish').addEventListener('click', async () => {
     const st = $('#onboardingStatus');
     const draft = account.draft || emptyProfile();
-    if (!canCompleteOnboarding(draft)) { st.textContent = 'En az bir kart seç.'; return; }
+    if (!canCompleteOnboarding(draft, account.catalog)) { st.textContent = 'En az bir kart seç.'; return; }
     $('#onbFinish').disabled = true; st.textContent = 'Profil kaydediliyor…';
     try {
       // İnceleme ekranında gösterilen (güncel ölçüt etiketli) seçimler bu adımda onaylanmış olur.
@@ -1503,6 +1600,7 @@ function renderAttributesEditor() {
 function wireProfileEditors() {
   $('#profileCardsEditor').addEventListener('click', e => {
     const el = e.target.closest('[data-action]'); if (!el || !editors.cards) return;
+    if (el.dataset.action === 'bank-request-send') { sendBankRequest(el); return; }
     editors.cards = applyEditorAction(editors.cards, el, account.catalog); renderCardsEditor();
   });
   $('#profileAttributesEditor').addEventListener('click', e => {
@@ -1511,7 +1609,7 @@ function wireProfileEditors() {
   });
   $('#profileCardsSave').addEventListener('click', async () => {
     const st = $('#profileCardsStatus');
-    if (!canCompleteOnboarding(editors.cards)) { st.textContent = 'En az bir kart seçili kalmalı.'; return; }
+    if (!canCompleteOnboarding(editors.cards, account.catalog)) { st.textContent = 'En az bir kart seçili kalmalı.'; return; }
     st.textContent = 'Kaydediliyor…'; $('#profileCardsSave').disabled = true;
     try { await persistProfile(editors.cards, { statusEl: st }); editors.cards = clone(account.profile); renderCardsEditor(); }
     catch (e) { st.textContent = `Kaydedilemedi: ${e.message}`; $('#profileCardsSave').disabled = false; }
@@ -1587,6 +1685,18 @@ function wirePwaInstall(){
   $('#installPwaBtn')?.addEventListener('click',runPwaInstall); $('#settingsInstallPwaBtn')?.addEventListener('click',runPwaInstall);
   const updateNet=()=>{const b=$('#networkBadge');if(!b)return;b.textContent=navigator.onLine?'Çevrimiçi':'Çevrimdışı';b.classList.toggle('offline',!navigator.onLine);};
   window.addEventListener('online',updateNet);window.addEventListener('offline',updateNet);updateNet();
+}
+
+// v1.4.4: Supabase dönüşü (e-posta doğrulama / şifre sıfırlama) yönlendirici adresi değiştirmeden ÖNCE yakalanır.
+// Adres çubuğundan jeton/hata parametreleri temizlenir; yol (ör. /Campaign-Hunter/) korunur.
+const AUTH_CALLBACK_KEY = 'bka-auth-callback-v1';
+const authCallback = captureAuthCallback(location) || (() => {
+  // Aynı sekmede açık uygulamaya yalnız hash değişimiyle gelen dönüş: hashchange'te yakalanıp sayfa yeniden yüklenir.
+  try { const v = JSON.parse(sessionStorage.getItem(AUTH_CALLBACK_KEY) || 'null'); sessionStorage.removeItem(AUTH_CALLBACK_KEY); return v; } catch { return null; }
+})();
+if (authCallback) {
+  const target = authCallback.kind === 'session' ? (authCallback.type === 'recovery' ? '#/profil/hesap' : DEFAULT_ROUTE) : '#/giris';
+  history.replaceState(null, '', `${location.pathname}${target}`);
 }
 
 syncResets();

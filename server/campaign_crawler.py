@@ -19,6 +19,12 @@ import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parent
 CONFIG_FILE = ROOT / "source_catalog.json"
+import sys as _sys
+if str(ROOT) not in _sys.path:
+    _sys.path.insert(0, str(ROOT))
+import source_registry  # noqa: E402
+import card_eligibility  # noqa: E402
+import eligibility_dual_write  # noqa: E402
 DATA_DIR = ROOT / "data"
 CATALOG_FILE = DATA_DIR / "catalog.json"
 STAGING_FILE = DATA_DIR / "catalog_staging.json"
@@ -562,8 +568,9 @@ def detect_categories(title: str, text: str) -> list[str]:
 
 def detect_channels(text: str) -> list[str]:
     low = text.lower()
-    only_online = bool(re.search(r"yalnızca.*(?:internet|online|mobil uygulama|\.com)|sadece.*(?:internet|online|mobil uygulama|\.com)", low))
-    only_physical = bool(re.search(r"yalnızca.*(?:fiziki|mağaza)|sadece.*(?:fiziki|mağaza)", low)) or "online işlemlerde geçerli değildir" in low
+    # The qualifier must govern the channel word in the SAME clause ("yalnızca fiziki POS ...; online pazaryeri ... dahil değil").
+    only_online = bool(re.search(r"(?:yalnızca|sadece)[^.;\n]{0,60}?(?:internet|online|mobil uygulama|\.com)", low))
+    only_physical = bool(re.search(r"(?:yalnızca|sadece)[^.;\n]{0,60}?(?:fiziki|mağaza)", low)) or "online işlemlerde geçerli değildir" in low
     if only_online and not only_physical: return ["online"]
     if only_physical and not only_online: return ["physical"]
     return []
@@ -673,6 +680,11 @@ def parse_fixed_rule(title: str, text: str, unit: str) -> dict | None:
         "chip_para":"chip-para", "parapuan":"ParaPuan", "bonus":"Bonus"
     }.get(unit)
     if unit_word:
+        # "her 5.000 TL ve üzeri harcamaya 250 TL, toplam 750 TL MaxiPuan": the per-transaction reward precedes the total.
+        pat = rf"([\d\.]+(?:,\d+)?)\s*TL\s+(?:ve\s+üzeri|üzeri)[^\n]{{0,160}}?([\d\.]+(?:,\d+)?)\s*(?:TL\s*)?(?:{re.escape(unit_word)}\s*)?,\s*toplam(?:da)?\s+[\d\.]+(?:,\d+)?\s*(?:TL\s*)?(?:['’]?(?:ye|ya|e|a)\s+varan\s+)?{re.escape(unit_word)}"
+        m = re.search(pat, text, flags=re.I)
+        if m:
+            return {"kind":"fixed","minSpend":tr_num(m.group(1)) or 0,"reward":tr_num(m.group(2)) or 0}
         # 5000 TL+ ... 500 Mil / 7.000 TL ve üzeri ilk alışverişe 500 TL chip-para
         pat = rf"([\d\.]+(?:,\d+)?)\s*TL\s+(?:ve\s+üzeri|üzeri)[^\n]{{0,220}}?([\d\.]+(?:,\d+)?)\s*(?:TL\s*)?{re.escape(unit_word)}"
         m = re.search(pat, text, flags=re.I)
@@ -756,6 +768,26 @@ def reset_policy(text: str, end_date: str | None) -> str:
     return "campaign" if end_date else "monthly"
 
 
+MERCHANT_NETWORK_PATTERNS = (
+    (r"bonus\s+üyesi[^.;\n]{0,90}?(?:iş\s*yer|işyer|mağaza)", "Bonus üye işyerleri"),
+    (r"(?<!aynı\s)(?<!aynı gün\s)bonus\s+üye\s+(?:iş\s*yer|işyer|mağaza)", "Bonus üye işyerleri"),
+    (r"(?<!aynı\s)\büye\s+(?:iş\s*yerleri|işyerleri|işyerlerinde|işyerlerinden|iş\s*yerlerinde|mağazalar)", "Üye işyerleri"),
+    (r"\banlaşmalı\s+(?:iş\s*yer|işyer|mağaza|üye\s+işyer)", "Anlaşmalı işyerleri"),
+)
+
+
+def detect_merchant_network(text: str) -> str | None:
+    """Label of an explicit member/contracted merchant network in the terms, else None (sentence-length lines only)."""
+    for line in (text or "").splitlines():
+        if len(line) < 40:
+            continue
+        low = line.lower()
+        for pat, label in MERCHANT_NETWORK_PATTERNS:
+            if re.search(pat, low):
+                return label
+    return None
+
+
 def detect_merchant_scope(title: str, text: str, categories: list[str], source_key: str, headings: list[str] | None = None) -> dict:
     # Special Crystal merchant list page: use content headings, not every text line.
     # The old implementation accidentally imported the entire Yapı Kredi navigation
@@ -829,8 +861,21 @@ def detect_merchant_scope(title: str, text: str, categories: list[str], source_k
         cat = categories[0] if len(categories)==1 else None
         return {"kind":"contains","category":cat,"values":candidates}
 
+    # v1.5.0: explicit member / contracted merchant NETWORK ("Bonus üyesi … işyerleri", "üye işyerlerinde",
+    # "anlaşmalı mağazalarda") with no extractable list → restricted population, not category-wide. A plain sector
+    # condition ("giyim/kozmetik sektöründe", MCC) is NOT a network. "Aynı (gün) aynı üye işyeri" boilerplate is ignored.
+    net = detect_merchant_network(text)
+    if net:
+        return {"kind":"restricted_unknown","scopeType":"network","networkLabel":net,
+                "category": categories[0] if len(categories)==1 else None}
+
     # Gerçek sektör kampanyaları merchant bağımsızdır. Decide this only AFTER trying
     # merchant extraction; otherwise "Minoa restoran harcamalarında" became all restaurants.
+    # Category-wide campaigns: a sector word + "alışveriş/harcama/sektör" in the title, no merchant name.
+    if re.search(r"(?:giyim|kozmetik|aksesuar|ayakkabı|market|gıda|restoran|akaryakıt|seyahat|e-ticaret|elektronik|mobilya|"
+                 r"eğitim|okul|kırtasiye|sağlık|otel|sigorta|otomotiv|yurt ?dışı|yurt ?içi)[^!?]{0,40}?"
+                 r"(?:alışveriş|harcama|sektör)", title_low):
+        return {"kind":"all"}
     title_sector_all = any(p in title_low for p in [
         "tüm restoran", "restoran sektör", "restoran harcam", "restoranlarda %", "otel ve restoran harcam",
         "giyim ve kozmetik sektör", "market harcama", "seyahat harcama", "yurt dışı harcama",
@@ -851,79 +896,90 @@ def detect_merchant_scope(title: str, text: str, categories: list[str], source_k
     return {"kind":"all"}
 
 
-def eligible_for_source(source: dict, title: str, text: str) -> tuple[bool, list[str]]:
-    low=(title+"\n"+text).lower()
-    key=source["key"]
-    reasons=[]
-    if key in {"qnb_ms","qnb_private","qnb_card"}:
-        if key=="qnb_ms" and "miles&smiles" not in low:
-            return False,["Miles&Smiles QNB kart uygunluğu metinde doğrulanamadı"]
-        if key=="qnb_card":
-            # General QNB pages often explicitly exclude Miles&Smiles. Never recommend those.
-            if re.search(r"miles&smiles[^\n]{0,120}(?:hariç|haric|dahil değildir|dahil degildir)", low) or re.search(r"(?:hariçtir|dahil değildir)[^\n]{0,120}miles&smiles", low):
-                return False,["Miles&Smiles QNB kampanya dışında"]
-        if "private metal" in low and "yalnızca miles&smiles qnb private metal" in low:
-            return False,["Yalnızca Private Metal kart için"]
-    elif key=="wings":
-        # This source is the official Wings domain itself. Do not require every page body
-        # to repeat the word "Wings"; Wings Style pages often omit it in visible legal text.
-        # Explicit exclusions still win.
-        if re.search(r"wings[^\n]{0,120}(?:kampanyaya dahil değildir|hariç|haric)",low):
-            return False,["Wings hariç tutulmuş"]
-    elif key=="axess_general":
-        # Axess sitesindeki genel kampanyalardan yalnızca Wings'in açıkça dahil edildiği sayfaları al.
-        if "wings" not in low: return False,["Wings uygunluğu metinde açıkça doğrulanamadı"]
-        if re.search(r"wings[^\n]{0,120}(?:dahil değildir|hariç|haric)", low): return False,["Wings kampanya dışında"]
-        if not re.search(r"(?:axess[^\n]{0,140})?wings[^\n]{0,160}(?:dahil|faydalanabilir|kart sahipleri)", low):
-            # Başlıkta Wings geçmesi tek başına yeterli değil; yasal metinde dahil olduğunu doğrula.
-            if "kampanyadan axess, wings" not in low and "axess, wings, free" not in low:
-                return False,["Wings'in kampanyaya dahil olduğu yasal metinde doğrulanamadı"]
-    elif key=="maximiles":
-        if "ticari kampanya" in low and "bireysel" not in low: return False,["Yalnızca ticari kart kampanyası"]
-        if re.search(r"maximiles[^\n]{0,100}(?:dahil değildir|hariç|haric)", low): return False,["Maximiles kampanya dışında"]
-        # Maximiles sitesi Maximum bireysel kampanyalarını da gösterir; açık hariç tutma yoksa katalogda tutulur.
-    elif key in {"world","crystal_special"}:
-        if "world eko" in low and "yalnızca" in low and "bireysel kredi kart" not in low: return False,["Crystal uygunluğu doğrulanamadı"]
-        if "ticari" in low and "bireysel kredi kart" not in low and key=="world": return False,["Yalnızca ticari kart"]
-        if re.search(r"crystal[^\n]{0,100}(?:dahil değildir|hariç|haric)", low): return False,["Crystal kampanya dışında"]
-    elif key=="teb":
-        # Infinite'e özel kart-dünyası sayfaları veya açıkça tüm bireysel Bonus kartlarını kapsayanlar.
-        if "teb infinite" not in low:
-            exclusive_other = any(x in low for x in ["she card’a özel", "cepteteb dijital kredi kartı ile", "teb signature kredi kartları’nız ile"]) and "infinite" not in low
-            if exclusive_other: return False,["Başka TEB kartına özel"]
-            if "bireysel bonus kredi kart" not in low: return False,["TEB Infinite uygunluğu doğrulanamadı"]
-    elif key=="teb_general":
-        # Genel TEB kampanyalarında yalnızca bireysel kredi kartlarının açıkça dahil edildiği sayfaları al.
-        if "banka kart" in title.lower() and "kredi kart" not in title.lower(): return False,["Banka kartı kampanyası"]
-        if any(x in low for x in ["ticari kredi kartlarınız ile", "ticari kartlara özel"]) and "bireysel kredi kart" not in low:
-            return False,["Yalnızca ticari kart kampanyası"]
-        eligible_phrases=["teb bireysel kredi kart", "bireysel teb kredi kart", "bonus özellikli bireysel kredi kart", "sade kart harici bireysel kredi kart", "sade kart hariç tüm bireysel kredi kart"]
-        if not any(x in low for x in eligible_phrases): return False,["TEB Infinite/TEB bireysel kredi kartı uygunluğu doğrulanamadı"]
-    return True,reasons
+# v1.5.0 — page kinds. Only campaign_detail pages ever enter the catalog; hubs/listings/navigation are discovery input.
+PAGE_KINDS = ("campaign_detail", "category_listing", "program_listing", "navigation", "unknown")
+PROGRAM_NAMES = ("mercedescard", "mercedes card", "maximiles black", "maximiles", "maximum", "wings", "axess", "worldcard",
+                 "world", "crystal", "miles&smiles", "qnb", "teb", "bonus", "infinite", "private")
+REWARD_WORDS = re.compile(r"(?:%\s*\d|\d[\d.,]*\s*(?:tl|mil|maxipuan|worldpuan|bonus|chip)|indirim|maxipuan|worldpuan|chip[- ]?para|"
+                          r"\bmil\b|bonus|taksit|hediye|iade|fırsat|firsat|ayrıcalı|ayricali|avantaj|ücretsiz|ucretsiz)", re.I)
+LEGAL_WORDS = ("kampanya", "harcama", "geçerli", "katılım", "katilim", "ödül", "indirim", "puan", " mil", "bonus", "taksit", "işlem")
+HUB_TITLE_RE = re.compile(r"(?:kampanyaları|kampanyalari|kampanyalar)\s*$", re.I)
 
 
-def generic_parse(source: dict, url: str, body: bytes, today: date, category_hint: list[str] | None = None) -> dict | None:
+def _path_slug(url: str) -> str:
+    return (urlparse(url).path or "/").rstrip("/").rsplit("/", 1)[-1].lower()
+
+
+def classify_page(source: dict, url: str, page: dict) -> str:
+    """Return one of PAGE_KINDS. Structure decides, not wording alone; verified core-benefit pages are details."""
+    if is_core_source_url(url):
+        return "campaign_detail"
+    title = norm_text(page.get("title") or "")
+    tlow = title.lower()
+    text = page.get("text") or ""
+    slug = _path_slug(url)
+    hub_slugs = {str(x).lower().strip("/") for x in (source.get("hub_slugs") or [])}
+    lines = [l for l in text.splitlines() if l.strip()]
+    long_legal = sum(1 for l in lines if len(l) >= 80 and any(w in l.lower() for w in LEGAL_WORDS))
+    detail_links = set()
+    for href in page.get("links") or []:
+        full = canonical_url(urljoin(url, html.unescape(href)))
+        if full != canonical_url(url) and url_allowed(full, source) and _path_slug(full) not in hub_slugs:
+            detail_links.add(full)
+    is_program_title = any(n in tlow for n in PROGRAM_NAMES)
+    hubby_title = bool(HUB_TITLE_RE.search(tlow)) or tlow in {"kampanya", "fırsatlar", "firsatlar", "kart dünyası", "kart dunyasi", "ayrıcalıklar", "ayricaliklar"}
+    listing_kind = "program_listing" if (is_program_title and not re.search(r"\d", tlow)) else "category_listing"
+    if slug in hub_slugs or hubby_title:
+        return listing_kind
+    # Hubs list several campaign cards (Maximiles shows 6 before "daha fazla") and carry no legal text of their own.
+    if (len(detail_links) >= 5 and long_legal == 0) or (len(detail_links) >= 8 and long_legal < 2):
+        return listing_kind
+    title_reward = bool(REWARD_WORDS.search(tlow))
+    if long_legal >= 1 and (title_reward or REWARD_WORDS.search(text[:1500])):
+        return "campaign_detail"
+    if title_reward:
+        return "campaign_detail"
+    if long_legal == 0:
+        return "navigation"
+    return "unknown"
+
+
+def resolve_card_eligibility(source: dict, title: str, text: str, card_tokens: list[str] | None = None) -> dict:
+    """Card eligibility of ONE campaign, from official structured tokens or its own terms. Never from the source."""
+    bank_code = source.get("bank_code")
+    if card_tokens:
+        return card_eligibility.resolve_from_tokens(bank_code, card_tokens, title, text)
+    return card_eligibility.resolve_from_text(bank_code, title, text)
+
+
+RESOLUTION_WARNING = {
+    "unresolved": "Kampanyanın hangi kartlarda geçerli olduğu resmi metinde bulunamadı; hiçbir kart için kesin uygun gösterilmez.",
+    "needs_review": "Kart uygunluğu belirsiz veya çelişkili; doğrulanana kadar hiçbir kart için kesin uygun gösterilmez.",
+    "partial_none": "Kampanya, uygulamada tanımlı olmayan kart aileleri için geçerli; tanımlı kartlarına uygulanmaz.",
+}
+
+
+def parse_detail(source: dict, url: str, body: bytes, today: date, category_hint: list[str] | None = None,
+                 card_tokens: list[str] | None = None, structured: dict | None = None) -> tuple[dict | None, str]:
+    """-> (record or None, outcome). outcome: campaign | expired | too_short | page_kind:<kind>."""
     page=parse_page(body); title=page["title"]; text=page["text"]; headings=page.get("headings", [])
-    if len(text) < 120: return None
-    # Liste/hub sayfalarını kampanya diye içeri alma. Bunlar onlarca farklı kategori ve marka
-    # metni taşıdığı için merchant/kategori parserını zehirliyordu (örn. QNB "Kampanyalar").
-    generic_title = re.sub(r"\s+", " ", title).strip().lower()
-    if generic_title in {"kampanyalar", "tüm kampanyalar", "tum kampanyalar", "kampanya", "kart dünyası", "kart dunyasi", "fırsatlar", "firsatlar"}:
-        return None
-    if re.fullmatch(r"(?:qnb|wings|worldcard|maximiles|teb)?\s*(?:kampanyalar|kampanya)", generic_title, flags=re.I):
-        return None
-    ok,reasons=eligible_for_source(source,title,text)
-    if not ok: return None
+    structured = structured or {}
+    if structured.get("title"):
+        title = structured["title"]
+    # Page kind first: a retired detail URL that now redirects to a (short, client-rendered) listing must be reported
+    # as a listing, never as a campaign or a mere "too short" parse error.
+    kind = classify_page(source, url, page)
+    if kind != "campaign_detail" and not structured.get("isCampaign"):
+        return None, f"page_kind:{kind}"
+    if len(text) < 120: return None, "too_short"
     start,end=core_source_dates(url,text,today)
-    # expired campaigns not needed in active catalog (7-day grace for debugging)
-    if end:
-        try:
-            if date.fromisoformat(end) < today - timedelta(days=7): return None
-        except ValueError: pass
+    start = structured.get("startDate") or start
+    end = structured.get("endDate") or end
     status="active"
     if "kampanya sona ermiştir" in text.lower(): status="expired"
+    if structured.get("isActive") is False: status="expired"
     if end and end < today.isoformat(): status="expired"
-    if status=="expired": return None
+    if status=="expired": return None, "expired"
     cats, category_source, category_confidence = detect_category_info(title, text, meta_description=page.get("metaDescription",""), category_hint=category_hint)
     reward,unit,reward_complete=parse_reward(title,text)
     period_cap=find_period_cap(text,unit)
@@ -942,52 +998,54 @@ def generic_parse(source: dict, url: str, body: bytes, today: date, category_hin
     if rp: tx["requiredPos"]=rp
     scope=detect_merchant_scope(title,text,cats,source["key"],headings)
     requires=detect_enrollment(text)
-    # Rules are exact enough only for directly computable monetary/miles rewards and date/eligibility.
     complete = reward_complete and reward.get("kind") not in {"unknown","non_cash"}
-    # restricted merchant list that wasn't extracted cannot be exact
-    if scope.get("kind")=="restricted_unknown": complete=False
-    # Aggregate spend campaigns need running spend history; mark condition but keep calculable threshold as conditional.
-    aggregate = bool(re.search(r"toplam(?:da)?\s+[\d\.]+(?:,\d+)?\s*TL", text, flags=re.I))
+    # A restricted list we could not extract is not exact — EXCEPT an explicit member/contracted merchant network
+    # ("Bonus üyesi işyerleri"): the reward rule is exact, only the merchant population is conditional (engine: conditional).
+    if scope.get("kind")=="restricted_unknown" and scope.get("scopeType")!="network": complete=False
+    # Only cumulative SPEND campaigns need running spend history ("toplam 1.200 TL Bonus" is a reward total, not spend).
+    aggregate = is_cumulative_spend(text)
     if aggregate:
         tx["cumulativeSpendCampaign"]=True
         complete=False
     decision_warnings=[]
     if aggregate: decision_warnings.append("Kampanya toplam dönem harcamasına bağlı; mevcut birikmiş harcama kullanıcı tarafından doğrulanmalıdır.")
-    if source["key"]=="qnb_private" and "miles&smiles" not in (title+" "+text).lower():
-        complete=False
-        decision_warnings.append("QNB Private ayrıcalığında Miles&Smiles Private kart uygunluğu metinde açıkça doğrulanamadı; bilgi amaçlı gösteriliyor.")
-    # Aynı resmi sayfada farklı müşteri/varlık segmentleri için farklı oranlar varsa genel parserın
-    # ilk gördüğü oranı kullanıp yanlış sıralama yapmasına izin verme. Teyit edilmiş sayfalar
-    # special_overrides() içinde seçilebilir segment kurallarına göre tekrar kesinleştirilir.
     low_all=(title+" "+text).lower()
-    if source["key"]=="wings" and "wings classic" in low_all and "wings black plus" in low_all:
+    if "wings classic" in low_all and "wings black plus" in low_all:
         complete=False
         decision_warnings.append("Kampanya Wings program seviyelerine göre farklı koşullar içeriyor; kullanıcının seviyesine özel kural doğrulanana kadar bilgi amaçlı gösteriliyor.")
-    if source["key"]=="maximiles" and "varlık" in low_all:
+    if "maximiles" in low_all and "varlık" in low_all:
         asset_markers=sum(1 for marker in ["1.000.000", "4.000.000", "8.000.000"] if marker in low_all)
         if asset_markers >= 2:
             complete=False
             decision_warnings.append("Kampanya Maximiles Black varlık bantlarına göre farklı koşullar içeriyor; seçili varlık bandına özel kural doğrulanana kadar bilgi amaçlı gösteriliyor.")
-    if source["key"]=="teb" and "ultra" in low_all and any(x in low_all for x in ["standart paket", "plus paket", "premium paket"]):
+    if source.get("bank_code")=="teb" and "ultra" in low_all and sum(1 for x in ["standart paket", "plus paket", "premium paket", "ultra paket"] if x in low_all) >= 2:
         complete=False
         decision_warnings.append("Kampanya TEB paket seviyelerine göre farklı koşullar içeriyor; seçili paket seviyesi doğrulanana kadar bilgi amaçlı gösteriliyor.")
-    if source["key"]=="teb_general" and any(x in low_all for x in ["troy logolu", "visa logolu", "mastercard logolu"]):
+    if source.get("bank_code")=="teb" and any(x in low_all for x in ["troy logolu", "visa logolu", "mastercard logolu"]):
         complete=False
-        decision_warnings.append("Kampanya kart ağı/logosu koşulu içeriyor; TEB Infinite kartının Visa/Mastercard/TROY logosu profilde doğrulanmadığı için bilgi amaçlı gösteriliyor.")
-    # Parser tek bir kampanyada ek/alternatif ödül koşullarını güvenle modelleyemiyorsa sıralamaya sokma.
+        decision_warnings.append("Kampanya kart ağı/logosu koşulu içeriyor; kartın Visa/Mastercard/TROY logosu profilde doğrulanmadığı için bilgi amaçlı gösteriliyor.")
     if re.search(r"(?:ek|ilave)\s+[\d\.]+(?:,\d+)?\s*(?:mil|worldpuan|maxipuan|chip[- ]?para|parapuan|bonus)", text, flags=re.I):
         complete=False
         decision_warnings.append("Kampanyada ek/alternatif ödül kuralı var; otomatik hesap yerine resmi koşul bilgi amaçlı gösteriliyor.")
     if not complete: decision_warnings.append("Kampanya bulundu ancak tüm hesaplama koşulları otomatik olarak kesinleştirilemedi; resmi detay bağlantısını kontrol et.")
 
+    resolution = resolve_card_eligibility(source, title, text, card_tokens)
+    if resolution["state"] in ("unresolved", "needs_review"):
+        decision_warnings.append(RESOLUTION_WARNING[resolution["state"]])
+    elif not card_eligibility.is_applicable_state(resolution):
+        decision_warnings.append(RESOLUTION_WARNING["partial_none"])
+
     slug=hashlib.sha1(url.encode("utf-8")).hexdigest()[:16]
-    return {
+    rec = {
         "id": f"live-{source['key']}-{slug}",
         "bank": source["bank"],
+        "bankCode": source.get("bank_code"),
         "sourceKey": source["key"],
         "title": title,
         "demo": False,
-        "cardProductIds": source["card_products"],
+        "cardProductIds": list(resolution["cardProductIds"]),
+        "cardFamilies": list(resolution.get("cardFamilies") or []),
+        "eligibilityResolution": resolution,
         "categories": cats,
         "categorySource": category_source,
         "categoryConfidence": category_confidence,
@@ -1005,10 +1063,38 @@ def generic_parse(source: dict, url: str, body: bytes, today: date, category_hin
         "decisionWarnings": decision_warnings,
         "sourceKind": "official_web_live",
         "sourceUrl": url,
+        "pageKind": "campaign_detail",
         "verifiedAt": datetime.now(timezone.utc).isoformat(),
         "termsSummary": summarize_terms(text),
         "rawTextDigest": hashlib.sha256(text.encode("utf-8")).hexdigest(),
     }
+    seg = resolution.get("segment")
+    if seg and card_eligibility.is_applicable_state(resolution):
+        rec["eligibility"] = {"segmentLabels": [seg["label"]]}
+    if structured.get("sourceCampaignId") is not None:
+        rec["sourceCampaignId"] = structured["sourceCampaignId"]
+    return rec, "campaign"
+
+
+def generic_parse(source: dict, url: str, body: bytes, today: date, category_hint: list[str] | None = None,
+                  card_tokens: list[str] | None = None) -> dict | None:
+    return parse_detail(source, url, body, today, category_hint, card_tokens)[0]
+
+
+CUMULATIVE_REWARD_UNIT = r"(?:tl\s*)?(?:bonus|mil(?:\s*puan)?|maxipuan|worldpuan|chip[- ]?para|parapuan|indirim|iade|hediye)"
+
+
+def is_cumulative_spend(text: str) -> bool:
+    """True only when the TERMS require a cumulative period SPEND (e.g. "toplam 10.000 TL ve üzeri harcama").
+    "Toplam 1.200 TL Bonus" / "toplamda 2.000 Mil" are reward totals (period caps), not spend thresholds."""
+    low = (text or "").lower()
+    for m in re.finditer(r"toplam(?:da)?\s+([\d\.]+(?:,\d+)?)\s*tl(?:['’](?:ye|ya|lik))?", low):
+        tail = low[m.end():m.end() + 40]
+        if re.match(rf"\s*{CUMULATIVE_REWARD_UNIT}", tail) or re.match(r"['’]?(?:ye|ya)?\s*varan", tail):
+            continue
+        if re.match(r"\s*(?:ve\s+üzeri\s+)?(?:harcama|alışveriş|alisveris|tutar)", tail) or "harcama" in low[max(0, m.start() - 60):m.start()]:
+            return True
+    return bool(re.search(r"harcamalar(?:ınızın|inizin)\s+toplamı|toplam\s+harcama(?:nız|niz)?\s+[\d\.]+", low))
 
 
 def known_core_fallback(source: dict, url: str, body: bytes, today: date) -> dict | None:
@@ -1028,16 +1114,18 @@ def known_core_fallback(source: dict, url: str, body: bytes, today: date) -> dic
     slug=hashlib.sha1(url.encode("utf-8")).hexdigest()[:16]
     c={
         "id":f"live-{source['key']}-{slug}", "bank":source["bank"], "sourceKey":source["key"],
-        "title":title, "demo":False, "cardProductIds":source["card_products"], "categories":cats,
+        "title":title, "demo":False, "cardProductIds":[], "categories":cats, "bankCode":source.get("bank_code"),
+        "eligibilityResolution":card_eligibility.resolve_from_text(source.get("bank_code"), title, text),
         "merchantScope":scope, "startDate":start, "endDate":end, "status":"active",
         "resetPolicy":"monthly", "periodCap":None, "requiresEnrollment":False,
         "rewardRule":{"kind":"unknown","minSpend":0}, "rewardUnit":"discount_try",
         "transactionRules":{}, "rulesComplete":False,
         "decisionWarnings":["Sayfa genel parser ile çözülemedi; doğrulanmış sürekli ayrıcalık kuralı kullanıldı."],
-        "sourceKind":"official_web_live", "sourceUrl":url,
+        "sourceKind":"official_web_live", "sourceUrl":url, "pageKind":"campaign_detail",
         "verifiedAt":datetime.now(timezone.utc).isoformat(), "termsSummary":summarize_terms(text),
         "rawTextDigest":hashlib.sha256((text or url).encode("utf-8")).hexdigest(),
     }
+    card_eligibility.apply_resolution(c, c["eligibilityResolution"])
     return c
 
 
@@ -1055,8 +1143,20 @@ def summarize_terms(text: str) -> str:
     return " ".join(lines)[:750]
 
 
+def apply_verified_cards(c: dict) -> dict:
+    url = (c.get("sourceUrl") or "").lower()
+    for marker, products in card_eligibility.VERIFIED_CARD_OVERRIDES:
+        if marker in url:
+            res = card_eligibility.verified_override(c.get("bankCode"), products, "Resmi sayfa kişi tarafından doğrulandı (URL bazlı doğrulanmış eşleme).")
+            card_eligibility.apply_resolution(c, res)
+            c["decisionWarnings"] = [w for w in (c.get("decisionWarnings") or []) if w not in RESOLUTION_WARNING.values()]
+            break
+    return c
+
+
 def special_overrides(c: dict) -> dict:
     """Resmi sayfalardan teyit edilmiş yüksek değerli/segment kuralları."""
+    c = apply_verified_cards(c)
     url=c.get("sourceUrl","").lower()
     text=(c.get("termsSummary") or "").lower()
     if "teb.com.tr/kart-dunyasi-otel-restoran-indirimi" in url and "yurt-ici" not in url:
@@ -1178,6 +1278,16 @@ def special_overrides(c: dict) -> dict:
                   "resetPolicy":"monthly","rulesComplete":True,"startDate":"2026-07-01","endDate":"2026-12-31"})
         c["requiresEnrollment"]=False
         c["decisionWarnings"]=list(dict.fromkeys((c.get("decisionWarnings") or [])+["Üye işyeri listesi QNB'nin resmi kampanya PDF listesinden eşleştirilir; liste değişirse sonraki sürümde güncellenmelidir."]))
+        # v1.5.0 — resmi sayfa (2026-10-04 doğrulandı): QNB kredi kartları %10, QNB First Plus %15, QNB Private %20;
+        # işlem başına 1.000 TL, aylık 2.000 TL. Eski alanlar (yalnız Private) eski istemciler için DEĞİŞMEDEN kalır;
+        # yeni istemci şema v1 alanlarını kullanır. Bu, bilinçli ve belgelenmiş TEK uygunluk düzeltmesidir.
+        cap={"minSpend":0,"perTransactionCap":1000}
+        c.update({"eligibilitySchemaVersion":1,
+                  "eligibilityRule":{"payWith":{"banks":["qnb"]}},
+                  "rewardVariants":[
+                      {"when":{"attr":{"dim":"qnb_segment","in":["private"]}},"rewardRule":{"kind":"percent","rate":0.20,**cap},"periodCap":2000,"rulesComplete":True},
+                      {"when":{"attr":{"dim":"qnb_segment","in":["first_plus"]}},"rewardRule":{"kind":"percent","rate":0.15,**cap},"periodCap":2000,"rulesComplete":True},
+                      {"when":{"always":True},"rewardRule":{"kind":"percent","rate":0.10,**cap},"periodCap":2000,"rulesComplete":True}]})
     # QNB Private seçkin beach/restoran sayfası: dönemsel %20, işlem 4.500, dönem 40.000.
     if "seckin-beach-ve-restoranlarda-indirim-ayricaligi" in url:
         merchants=[
@@ -1195,8 +1305,13 @@ def special_overrides(c: dict) -> dict:
     return c
 
 
-def load_config() -> list[dict]:
+def load_all_sources() -> list[dict]:
     return json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+
+
+def load_config() -> list[dict]:
+    """Crawlable sources only. v1.5.0: registry rows with enabled=false (or no adapter) are NEVER fetched."""
+    return source_registry.active_sources(load_all_sources())
 
 
 
@@ -1229,46 +1344,220 @@ def atomic_json(path: Path, obj) -> None:
     tmp.replace(path)
 
 
-def discover_source(source: dict) -> tuple[list[str], list[str]]:
-    """Aktif liste sayfalarını önceliklendirir; sitemap yalnızca liste kapsamı yetersizse devreye girer."""
-    prioritized=[]; errors=[]
-    def add(u):
-        u=canonical_url(u)
-        if u and u not in prioritized: prioritized.append(u)
+# ----------------------------------------------------------------------------- discovery (global, user-independent)
+# Discovery input is ONLY the reviewed source config + official pages/APIs. No user, profile, owned card, segment or
+# product list participates (tested). Mechanisms:
+#   json_api      official structured listing (Wings: /api/campaign/list?page=N with totalCount/pageCount + card_type)
+#   listing_html  server-rendered listing links
+#   sitemap       official sitemap (enumerable; may include historical pages → expiry/page-kind filtering)
+#   fallback      reviewed known URLs (never the only mechanism for a healthy source)
+WINGS_SECTOR_CATEGORIES = {
+    "giyim-kozmetik-aksesuar": "giyim", "giyim": "giyim", "market": "market", "market-gida": "market", "gida-market": "market",
+    "restoran": "restoran", "restoran-kafe": "restoran", "yeme-icme": "restoran", "akaryakit": "akaryakit",
+    "seyahat": "seyahat", "turizm-seyahat": "seyahat", "elektronik": "elektronik", "e-ticaret": "e-ticaret",
+    "eticaret": "e-ticaret", "otomotiv": "otomotiv", "egitim": "egitim", "saglik": "saglik", "mobilya-dekorasyon": "ev",
+    "eglence": "eglence", "sigorta": "sigorta",
+}
 
-    # 1) Kritik/bilinen URL'leri önce ekle. Source detail limiti uygulanırken listenin
-    # sonuna düşüp kesilmelerini istemiyoruz. Bu hata Maximiles Black restoran ve TEB
-    # sürekli ayrıcalıklarının katalogdan kaybolmasına yol açabiliyordu.
-    for u in source.get("fallback_urls",[]): add(u)
 
-    # 2) Canlı liste sayfaları: güncel kampanyaları bunlarla tamamla.
-    for listing in source.get("listing_urls",[]):
+def _api_date(v) -> str | None:
+    if v in (None, ""):
+        return None
+    s = str(v).strip()
+    m = re.match(r"/Date\((-?\d+)", s)
+    if m:
+        return datetime.fromtimestamp(int(m[1]) / 1000, TR_TZ).date().isoformat()
+    m = re.match(r"(20\d{2})-(\d{2})-(\d{2})", s)
+    if m:
+        return iso_date(int(m[1]), int(m[2]), int(m[3]))
+    m = re.match(r"(\d{1,2})[./](\d{1,2})[./](20\d{2})", s)
+    if m:
+        return iso_date(int(m[3]), int(m[2]), int(m[1]))
+    return None
+
+
+def _clean_api_title(t) -> str:
+    return norm_text(html.unescape(str(t or "")).replace("\xa0", " "))
+
+
+def wings_api_item(item: dict, base_url: str, today: date) -> tuple[str, dict] | None:
+    url = item.get("url")
+    if not url:
+        return None
+    full = canonical_url(urljoin(base_url, str(url)))
+    start, end = _api_date(item.get("startDate")), _api_date(item.get("endDate"))
+    tokens = [t.strip() for t in str(item.get("card_type") or "").split(",") if t.strip()]
+    sectors = [str(x).strip().lower() for x in (item.get("sectorvalue") or []) if str(x).strip()]
+    cats = [WINGS_SECTOR_CATEGORIES[x] for x in sectors if x in WINGS_SECTOR_CATEGORIES]
+    active = item.get("isActive") is not False and not (end and end < today.isoformat())
+    return full, {"title": _clean_api_title(item.get("title")), "startDate": start, "endDate": end, "isActive": active,
+                  "cardTokens": tokens, "categoryHint": list(dict.fromkeys(cats)) or None, "sourceCampaignId": item.get("id"),
+                  "isCampaign": True, "apiSector": item.get("sector"), "apiCategory": item.get("category")}
+
+
+def discover_json_api(source: dict, today: date) -> dict:
+    api = source.get("api") or {}
+    tmpl = api.get("url")
+    out = {"items": {}, "official_count": None, "page_count": None, "pages_fetched": 0, "errors": [], "expired": 0}
+    if not tmpl:
+        return out
+    max_pages = int(api.get("max_pages", 40))
+    page, page_count = 1, 1
+    while page <= min(page_count, max_pages):
+        url = tmpl.format(page=page)
         try:
-            fr=fetch(listing,12)
-            for u in sorted(discover_from_html(fr.url,fr.body,source)): add(u)
+            fr = fetch(url, 15)
+            data = json.loads(fr.body.decode("utf-8", errors="ignore"))
+            data = data.get("data", data) if isinstance(data, dict) else {}
+            if page == 1:
+                out["official_count"] = data.get("totalCount")
+                page_count = int(data.get("pageCount") or 1)
+                out["page_count"] = page_count
+            out["pages_fetched"] += 1
+            # `list` is the paginated listing; `overSoonList`/`randomList` are campaigns too (ending soon / featured).
+            # Their union (deduplicated by id) is compared against totalCount. `passiveList` (ended) is not crawled.
+            for item in [*(data.get("list") or []), *(data.get("overSoonList") or []), *(data.get("randomList") or [])]:
+                if not isinstance(item, dict):
+                    continue
+                key = item.get("id") if item.get("id") is not None else item.get("url")
+                if key in out["items"]:
+                    continue
+                row = wings_api_item(item, url, today)
+                if row:
+                    out["items"][key] = row
         except Exception as e:
-            errors.append(f"listing {listing}: {type(e).__name__}: {e}")
+            out["errors"].append(f"api {url}: {type(e).__name__}: {e}")
+            if page == 1:
+                break
+        page += 1
+    if page_count > max_pages:
+        out["errors"].append(f"api: pageCount {page_count} > max_pages {max_pages}; liste kısaltıldı")
+    return out
 
-    # 3) Liste sayfaları yeterince URL vermediyse sitemap ile tamamla.
-    # Sitemap arşiv içerdiğinden her zaman taramak gereksiz derecede yavaştı.
-    min_candidates=int(source.get("min_listing_candidates", 18) or 18)
-    if len(prioritized) < min_candidates:
-        for sm in source.get("sitemap_urls",[]):
+
+def discover(source: dict, today: date | None = None) -> dict:
+    today = today or today_tr()
+    res = {"mechanisms": [], "urls": [], "structured": {}, "listing_candidates": 0, "sitemap_candidates": 0,
+           "fallback_candidates": 0, "official_count": None, "official_active_count": None, "api_items": 0,
+           "api_expired": 0, "api_pages": None, "hub_filtered": 0, "errors": []}
+    urls: list[str] = []
+    def add(u):
+        u = canonical_url(u)
+        if u and u not in urls:
+            urls.append(u)
+            return True
+        return False
+
+    hub_slugs = {str(x).lower().strip("/") for x in (source.get("hub_slugs") or [])}
+    for u in source.get("fallback_urls", []):
+        if add(u):
+            res["fallback_candidates"] += 1
+    if source.get("fallback_urls"):
+        res["mechanisms"].append("fallback")
+
+    if source.get("api"):
+        api = discover_json_api(source, today)
+        res["mechanisms"].append("json_api")
+        res["errors"].extend(api["errors"])
+        res["official_count"] = api["official_count"]
+        res["api_pages"] = {"pageCount": api["page_count"], "fetched": api["pages_fetched"]}
+        res["api_items"] = len(api["items"])
+        active = 0
+        for _, (full, st) in api["items"].items():
+            if not st["isActive"]:
+                res["api_expired"] += 1
+                continue
+            active += 1
+            res["structured"][full] = st
+            add(full)
+        res["official_active_count"] = active if api["official_count"] is not None else None
+        res["listing_candidates"] += len(api["items"])
+
+    found_listing = 0
+    for listing in source.get("listing_urls", []):
+        try:
+            fr = fetch(listing, 12)
+            for u in sorted(discover_from_html(fr.url, fr.body, source)):
+                if _path_slug(u) in hub_slugs:
+                    res["hub_filtered"] += 1
+                    continue
+                found_listing += 1
+                add(u)
+        except Exception as e:
+            res["errors"].append(f"listing {listing}: {type(e).__name__}: {e}")
+    if source.get("listing_urls"):
+        res["mechanisms"].append("listing_html")
+    res["listing_candidates"] += found_listing
+
+    min_candidates = int(source.get("min_listing_candidates", 18) or 18)
+    if source.get("sitemap_urls") and (source.get("sitemap_mode") == "always" or len(urls) < min_candidates):
+        res["mechanisms"].append("sitemap")
+        for sm in source.get("sitemap_urls", []):
             try:
-                fr=fetch(sm,12)
-                children=sitemap_children(fr.body)
+                fr = fetch(sm, 12)
+                children = sitemap_children(fr.body)
+                bodies = []
                 if children:
-                    for child in children[:6]:
+                    for child in children[:int(source.get("max_sitemap_children", 6))]:
                         try:
-                            cfr=fetch(child,12)
-                            for u in discover_from_sitemap_ranked(cfr.body,source): add(u)
+                            bodies.append(fetch(child, 12).body)
                         except Exception as e:
-                            errors.append(f"sitemap-child {child}: {type(e).__name__}: {e}")
+                            res["errors"].append(f"sitemap-child {child}: {type(e).__name__}: {e}")
                 else:
-                    for u in discover_from_sitemap_ranked(fr.body,source): add(u)
+                    bodies.append(fr.body)
+                for b in bodies:
+                    for u in discover_from_sitemap_ranked(b, source):
+                        if _path_slug(u) in hub_slugs:
+                            res["hub_filtered"] += 1
+                            continue
+                        res["sitemap_candidates"] += 1
+                        add(u)
             except Exception as e:
-                errors.append(f"sitemap {sm}: {type(e).__name__}: {e}")
-    return prioritized,errors
+                res["errors"].append(f"sitemap {sm}: {type(e).__name__}: {e}")
+    res["urls"] = urls
+    return res
+
+
+def discover_source(source: dict) -> tuple[list[str], list[str]]:
+    """Backward-compatible wrapper: ordered detail URLs + discovery errors."""
+    d = discover(source)
+    return d["urls"], d["errors"]
+
+
+def assess_completeness(m: dict, source: dict) -> dict:
+    """Coverage evidence for one source. 'complete' needs an official enumerable count that was fully enumerated and
+    parsed; equality with the last-known-good catalog is NEVER evidence of completeness."""
+    reasons = []
+    considered = max(0, m["fetched"] - m["expired"] - m["fetch_errors"] - m["rejected_listing_pages"])
+    gap = considered >= 5 and m["active"] < 0.5 * considered
+    if m.get("official_count") is not None:
+        enumerated = m.get("api_items", 0)
+        oc = int(m["official_count"] or 0)
+        if enumerated < oc:
+            reasons.append(f"Resmi toplam {oc}, listelenen {enumerated}.")
+        oa = m.get("official_active_count") or 0
+        api_parsed = m.get("api_parsed", 0)
+        if oa and api_parsed < oa:
+            reasons.append(f"Resmi aktif {oa}, çözümlenen {api_parsed}.")
+        if not reasons and not m["truncated"] and not gap:
+            return {"status": "complete", "confidence": "high", "officialCount": oc, "reasons": ["Resmi sayım ile birebir eşleşti."]}
+        status = "incomplete" if (gap or (oa and api_parsed < 0.5 * oa)) else "partial"
+        return {"status": status, "confidence": "low" if status == "incomplete" else "medium", "officialCount": oc, "reasons": reasons}
+    if gap:
+        reasons.append(f"{considered} aday detay sayfasından yalnız {m['active']} kampanya çözümlendi.")
+        return {"status": "incomplete", "confidence": "low", "officialCount": None, "reasons": reasons}
+    if m["truncated"]:
+        reasons.append(f"{m['truncated']} aday URL detay limiti nedeniyle okunmadı.")
+    if "sitemap" in m["mechanism"] and m["sitemap_candidates"]:
+        if not m["truncated"]:
+            reasons.append("Resmi sitemap tamamen tarandı; resmi aktif kampanya sayısı yayınlanmadığı için tamlık kanıtlanamaz.")
+        return {"status": "partial", "confidence": "medium" if not m["truncated"] else "low", "officialCount": None, "reasons": reasons}
+    if source.get("listing_static_complete"):
+        reasons.append("Liste sunucu tarafında tam olarak veriliyor (daha fazla göster / sayfalama yok); resmi sayı yok.")
+        return {"status": "partial", "confidence": "medium", "officialCount": None, "reasons": reasons}
+    reasons.append("Liste istemci tarafında / 'daha fazla göster' ile yükleniyor ve sayılabilir resmi kaynak yok; kapsam kısmi.")
+    return {"status": "partial", "confidence": "low", "officialCount": None, "reasons": reasons}
+
 
 def campaign_identity(c: dict) -> tuple[str, str]:
     bank = norm_text(c.get("bank", "")).lower()
@@ -1317,10 +1606,14 @@ def _refresh_catalog_impl(max_per_source: int=90) -> dict:
     print("Banka Kampanya Avcisi - canli kampanya taramasi", flush=True)
     print(f"Kaynak sayisi: {len(sources)}", flush=True)
 
-    old={}; old_digest={}
+    old={}; old_digest={}; old_registry=None
     if CATALOG_FILE.exists():
         try:
-            old_data=json.loads(CATALOG_FILE.read_text(encoding="utf-8")); old={c["sourceUrl"]:c for c in old_data.get("campaigns",[]) if c.get("sourceUrl")}
+            old_data=json.loads(CATALOG_FILE.read_text(encoding="utf-8"))
+            bank_by_src={x["key"]:x.get("bank_code") for x in load_all_sources()}
+            # Pre-v1.5 LKG records carry source-assumed cards; re-derive from their own text before any reuse.
+            old={c["sourceUrl"]:card_eligibility.normalize_legacy_record(c,bank_by_src) for c in old_data.get("campaigns",[]) if c.get("sourceUrl")}
+            old_registry=(old_data.get("meta") or {}).get("sourceRegistry")
             old_digest={u:c.get("rawTextDigest") for u,c in old.items()}
         except Exception: old={}
 
@@ -1329,7 +1622,8 @@ def _refresh_catalog_impl(max_per_source: int=90) -> dict:
         key=source["key"]; bank=source["bank"]
         print(f"\n[{src_idx}/{len(sources)}] {bank} / {key}: kampanya linkleri bulunuyor...", flush=True)
         atomic_json(STATUS_FILE,{"state":"running","stage":"discovering","last_started_at":now.isoformat(),"campaign_count":len(campaigns),"error_count":sum(len(r.get('errors',[])) for r in source_reports),"source_index":src_idx,"source_count":len(sources),"current_source":key,"current_bank":bank,"source_done":0,"source_total":0})
-        urls,discovery_errors=discover_source(source)
+        disc=discover(source, today)
+        urls=list(disc["urls"]); discovery_errors=list(disc["errors"])
         category_hints,category_hint_errors=discover_category_hints(source)
         discovery_errors.extend(category_hint_errors)
         # Official category pages are also a discovery source. Insert their detail
@@ -1342,21 +1636,26 @@ def _refresh_catalog_impl(max_per_source: int=90) -> dict:
         source_limit=int(source.get("max_details", max_per_source) or max_per_source)
         ordered=urls[:source_limit]
         total_candidates += len(ordered)
-        print(f"  {len(ordered)} aday sayfa bulundu. Detaylar paralel okunuyor...", flush=True)
+        print(f"  {len(ordered)} aday sayfa bulundu ({'+'.join(disc['mechanisms']) or '-'}). Detaylar paralel okunuyor...", flush=True)
         errs=list(discovery_errors); kept_items=[]
+        outcomes: dict[str,int]={}
+        api_parsed=0
 
         def fetch_one(url):
+            st=disc["structured"].get(url) or {}
             try:
                 fr=fetch(url,12)
                 final_url=canonical_url(fr.url)
-                hint=category_hints.get(final_url)
-                c=generic_parse(source,final_url,fr.body,today,category_hint=hint) if hint else generic_parse(source,final_url,fr.body,today)
+                st=st or disc["structured"].get(final_url) or {}
+                hint=category_hints.get(final_url) or st.get("categoryHint")
+                c,outcome=parse_detail(source,final_url,fr.body,today,category_hint=hint,card_tokens=st.get("cardTokens") or None,structured=st or None)
                 if c is None:
-                    c=known_core_fallback(source,final_url,fr.body,today)
+                    core=known_core_fallback(source,final_url,fr.body,today)
+                    if core is not None: c,outcome=core,"campaign"
                 if c: c=special_overrides(c)
-                return url,c,None
+                return url,c,None,outcome,bool(st)
             except Exception as e:
-                return url,None,f"detail {url}: {type(e).__name__}: {e}"
+                return url,None,f"detail {url}: {type(e).__name__}: {e}","fetch_error",bool(st)
 
         max_workers=min(12,max(1,len(ordered)))
         done=0
@@ -1364,9 +1663,11 @@ def _refresh_catalog_impl(max_per_source: int=90) -> dict:
             with ThreadPoolExecutor(max_workers=max_workers) as ex:
                 futures=[ex.submit(fetch_one,u) for u in ordered]
                 for fut in as_completed(futures):
-                    url,c,err=fut.result(); done += 1; fetched += 1
+                    url,c,err,outcome,from_api=fut.result(); done += 1; fetched += 1
+                    outcomes[outcome]=outcomes.get(outcome,0)+1
                     if c is not None:
                         kept_items.append(c)
+                        if from_api: api_parsed += 1
                     elif err:
                         errs.append(err)
                         if url in old:
@@ -1376,6 +1677,7 @@ def _refresh_catalog_impl(max_per_source: int=90) -> dict:
                         print(f"  ilerleme {done}/{len(ordered)} · uygun {len(kept_items)} · hata {len(errs)}", flush=True)
                         atomic_json(STATUS_FILE,{"state":"running","stage":"fetching","last_started_at":now.isoformat(),"campaign_count":len(campaigns)+len(kept_items),"error_count":sum(len(r.get('errors',[])) for r in source_reports)+len(errs),"source_index":src_idx,"source_count":len(sources),"current_source":key,"current_bank":bank,"source_done":done,"source_total":len(ordered)})
 
+        fresh_items=[c for c in kept_items if not c.get("staleFromLastKnownGood")]
         if not kept_items:
             stale_count=0
             for stale0 in old.values():
@@ -1389,8 +1691,38 @@ def _refresh_catalog_impl(max_per_source: int=90) -> dict:
                 errs.append(f"source {key}: 0 kullanılabilir kayıt ve korunacak önceki kayıt yok")
 
         campaigns.extend(kept_items)
-        source_reports.append({"key":key,"bank":bank,"candidate_count":len(ordered),"kept_count":len(kept_items),"errors":errs[:40]})
-        print(f"  tamam: {len(kept_items)} ilgili kampanya katalogda.", flush=True)
+        states={st:0 for st in card_eligibility.STATES}
+        for c in fresh_items:
+            stt=(c.get("eligibilityResolution") or {}).get("state","unresolved"); states[stt]=states.get(stt,0)+1
+        rejected_kinds={k.split(":",1)[1]:v for k,v in outcomes.items() if k.startswith("page_kind:")}
+        if disc.get("hub_filtered"):
+            rejected_kinds["configured_hub_not_fetched"]=disc["hub_filtered"]
+        metrics={
+            "mechanism":"+".join(disc["mechanisms"]),
+            "listing_candidates":disc["listing_candidates"],
+            "sitemap_candidates":disc["sitemap_candidates"],
+            "fallback_candidates":disc["fallback_candidates"],
+            "discovered_detail_urls":len(urls),
+            "truncated":max(0,len(urls)-len(ordered)),
+            "fetched":len(ordered),
+            "fetch_errors":outcomes.get("fetch_error",0),
+            "active":len(fresh_items),
+            "applicable":sum(1 for c in fresh_items if c.get("cardProductIds")),
+            "resolved":states.get("resolved",0), "partial":states.get("partial",0),
+            "unresolved":states.get("unresolved",0), "needs_review":states.get("needs_review",0),
+            "expired":outcomes.get("expired",0)+disc["api_expired"],
+            "rejected_page_kinds":rejected_kinds,
+            "rejected_listing_pages":sum(v for k,v in rejected_kinds.items() if k in ("category_listing","program_listing","navigation")),
+            "too_short":outcomes.get("too_short",0),
+            "parse_errors":outcomes.get("too_short",0)+rejected_kinds.get("unknown",0),
+            "official_count":disc["official_count"],
+            "official_active_count":disc["official_active_count"],
+            "api_items":disc["api_items"], "api_parsed":api_parsed, "api_pages":disc["api_pages"],
+            "stale_from_lkg":len(kept_items)-len(fresh_items),
+        }
+        metrics["completeness"]=assess_completeness(metrics, source)
+        source_reports.append({"key":key,"bank":bank,"candidate_count":len(ordered),"kept_count":len(kept_items),"errors":errs[:40],**metrics})
+        print(f"  tamam: {len(kept_items)} ilgili kampanya katalogda · tamlık {metrics['completeness']['status']}/{metrics['completeness']['confidence']}.", flush=True)
 
         # Tarama sonucu staging dosyasına yazılır. Karar motorunun kullandığı son başarılı
         # tam katalog, tüm kaynaklar bitene kadar asla değiştirilmez.
@@ -1405,9 +1737,14 @@ def _refresh_catalog_impl(max_per_source: int=90) -> dict:
 
     campaigns=dedupe_campaigns(campaigns)
     campaigns.sort(key=lambda c:(c.get("bank","") , c.get("endDate") or "9999-99-99", c.get("title","")))
+    # v1.5.0 çift yazım: eski alanlar korunur, kesin çevrilebilen kayıtlara şema v1 alanları eklenir.
+    campaigns, dual_write_stats = eligibility_dual_write.dual_write_catalog(campaigns)
+    crawled_at=datetime.now(timezone.utc).isoformat()
+    source_registry_rows=source_registry.build_registry(load_all_sources(), campaigns, crawled_at, old_registry, source_reports)
     changed_count=sum(1 for c in campaigns if old_digest.get(c.get("sourceUrl")) != c.get("rawTextDigest")) + sum(1 for u in old if u not in {c.get("sourceUrl") for c in campaigns})
     payload={"version":1,"generatedAt":datetime.now(timezone.utc).isoformat(),"campaigns":campaigns,
-             "meta":{"candidate_count":total_candidates,"fetched_count":fetched,"campaign_count":len(campaigns),"changed_count":changed_count,"source_reports":source_reports,"partial":False}}
+             "meta":{"candidate_count":total_candidates,"fetched_count":fetched,"campaign_count":len(campaigns),"changed_count":changed_count,"source_reports":source_reports,"partial":False,
+                     "sourceRegistry":source_registry_rows,"eligibilityDualWrite":dual_write_stats}}
     atomic_json(CATALOG_FILE,payload)
     try:
         STAGING_FILE.unlink(missing_ok=True)

@@ -1,14 +1,17 @@
 # Campaign eligibility schema v1 — FROZEN for v1.5 dual-write
 
-Status (v1.4.3; schema v1 unchanged since v1.4.2):
+Status (v1.5.0; schema v1 unchanged since v1.4.2 — now produced by the crawler dual-write and evaluated end-to-end including `rewardVariants`):
 
-- **Implemented and tested:** the evaluator, schema-version enforcement, structural validation, the catalog quality guard validator, and the `rewardVariants` selection semantics.
+- **Implemented and tested:**
+  - the evaluator, schema-version enforcement, structural validation and the catalog quality guard validator;
+  - `rewardVariants`, wired into the engine (`resolveSegmentCampaign`), so Hangi Kart? and Kampanyalar both use them;
+  - the crawler dual-write (`server/eligibility_dual_write.py`), with cross-language legacy-parity tests.
 - **Shared:** the evaluator (`web/eligibility.js`) is used by both *Kampanyalar* and *Hangi Kart?*. The validator exists in JS and Python (`server/eligibility_schema.py`), and both are run against one shared fixture (`docs/eligibility-validation-cases.v1.json`).
-- **Not implemented yet (v1.5):**
-  - the crawler emitting rules (dual-write);
-  - wiring `rewardVariants` into the Hangi Kart? amount;
-  - migrating `bootstrap-data.js` core benefits.
-- **No live effect yet:** no published catalog entry uses `eligibilityRule` today. Every campaign goes through the legacy adapter, and results are identical to v1.4.0/v1.4.1. A test checks 616 combinations, and another checks that the bundled catalog is 100% legacy.
+- **Still legacy:** the `bootstrap-data.js` core benefits ship with the client and stay on the legacy adapter, which has proven parity.
+- **Live effect from the next crawl after deploy:**
+  - Crawled campaigns carry v1 fields **next to** the legacy fields; old clients keep reading the legacy ones.
+  - Legacy-vs-v1 results are identical across all card × segment × amount combinations (`server/tests/test_dual_write.py`).
+  - **One documented exception:** QNB Terminal Kadıköy (official page verified 2026-10-04). All QNB credit cards get 10%, First Plus 15% and Private 20%. Legacy fields stay "Private only" for old clients.
 
 The campaign truth stays on the existing path: **crawler → catalog JSON → quality guard → catalog snapshot → client**. The relational `campaigns` tables stay unused.
 
@@ -72,13 +75,27 @@ Each node is an object with **exactly one** key. All values are stable master-da
 | `{ "all": [r, …] }` | AND (non-empty) |
 | `{ "any": [r, …] }` | OR (non-empty) |
 | `{ "not": r }` | NOT / exclusion |
-| `{ "payWith": { "cards": [codes], "banks": [codes] } }` | Transaction level: the card **used for this transaction**. |
-| `{ "owns": { "cards": [codes], "banks": [codes] } }` | Customer level: the user **holds** one of the products / is a customer of one of the banks (from the profile). |
+| `{ "payWith": { "cards": [codes], "banks": [codes], "families": [codes] } }` | Transaction level: the card **used for this transaction**. |
+| `{ "owns": { "cards": [codes], "banks": [codes], "families": [codes] } }` | Customer level: the user **holds** one of the products / is a customer of one of the banks / holds a member of one of the families (from the profile). |
 | `{ "attr": { "dim": code, "in": [option codes] } }` | Profile attribute. Reads `user_profile_attributes` by dimension and option code. Never reads `card.segment`. |
 | `{ "always": true }` | Unconditional. Used as the guaranteed fallback in `rewardVariants`. |
 | `{ "legacySegmentLabel": { "in": [labels] } }` | **Adapter-internal only.** Rejected in published rules. |
 
 `payWith`, `owns` and `attr` accept no other keys. A typo such as `"card"` or an extra `"segment"` is an error.
+
+### Card family / program scope (`families`, added in v1.5.0)
+
+- **What it is.** A campaign can target a stable card family or program, e.g.:
+  - `teb-bonus-individual-credit` = "TEB Bonus özellikli bireysel kredi kartları";
+  - `miles-smiles-qnb` = "Miles&Smiles QNB kartları".
+- **Where families are defined.** In master data (`CARD_ELIGIBILITY_FAMILIES` in `web/profile-catalog.js` → `eligibility_master.v1.json` `cardFamilies`), with `members` and `membershipComplete`.
+- **How a card matches.** A card matches `families` when its product is a member. Membership comes from master data, or from `card.families` on the evaluated card.
+- **The rule stays family-level.** It is never rewritten to the currently known member products. Adding a member product (master data only) makes it match without changing any campaign record.
+- **Incomplete families.** A family whose master-data membership is incomplete gives `eligibilityResolution.state = "partial"`, never "resolved to this one product".
+- **Scope is not broadened.** Bonus-featured TEB cards ≠ all TEB cards (`teb-individual-credit`), and Miles&Smiles QNB ≠ all QNB cards (`qnb-individual-credit`).
+- **Exclusions** stay a separate clause: `all[ payWith families [qnb-individual-credit], not payWith families [miles-smiles-qnb] ]`.
+- **Unknown family code:** the quality guard issues a warning and the rule is inert (it matches nobody).
+- **Older strict clients** (v1.4.2–v1.4.4) reject the new key and fail closed: they show no applicability for such a record, never a wrong one.
 
 ### Mixed `cards` + `banks` in one leaf is conjunctive (AND)
 
@@ -104,7 +121,7 @@ The values are `true`, `false` and `null` (unknown).
 
 Results carry reasons: `card_product`, `segment` (+`dim`), `ownership`, `excluded`, `invalid_rule`, `unsupported_schema`. Evaluation is a pure function of the rule, the context and the card. `campaignTargetsCard` (the Hangi Kart? candidate pre-filter) evaluates only `payWith` leaves. It returns false for invalid records.
 
-## 4. `rewardVariants` — three-valued tier selection (defined and tested; not yet wired to the amount)
+## 4. `rewardVariants` — three-valued tier selection (wired into the engine in v1.5.0)
 
 Eligibility and reward tier are **separate decisions**:
 
@@ -242,7 +259,9 @@ Each dimension option has separate layers:
   - add threshold criteria rows only where an appropriate official source supports them (same `profile_option_criteria` mechanism). Otherwise show the tier name with no threshold;
   - move the Wings `engineLabel`s together with the `segmentRules` → `rewardVariants` migration.
 
-## 7. Migration plan (v1.5)
+## 7. Migration plan
+
+Status in v1.5.0: steps 1–3 are done for crawled campaigns; step 4 (contract) is pending.
 
 1. **Crawler dual-write.** The crawler writes `eligibilitySchemaVersion: 1` + `eligibilityRule` **alongside** the legacy fields.
    - The default rule per source is `payWith.cards` from `source_catalog.json`.
@@ -274,8 +293,10 @@ Machine-checked by `web/test-eligibility.mjs` (eligibility + reward variants) an
 3. **QNB Terminal Kadıköy:** `payWith banks [qnb]`; variants private 20% → first_plus 15% → `always` 10% (table in §4).
 4. **QNB şarj ParaPuan, Miles&Smiles QNB excluded:** `all[payWith banks [qnb], not payWith cards [qnb-ms-private]]`.
 5. **TEB Ultra-only:** `all[payWith teb-infinite, attr teb_tier = ultra]`.
-6. **Axess genel, Wings included:** `any[payWith akbank-wings-elite, payWith akbank-wings-black]`.
+6. **Axess genel, Wings included:** `payWith families [wings]` (family scope since v1.5.0; was a product list).
+7. **TEB giyim (Bonus üye işyerleri):** `payWith families [teb-bonus-individual-credit]`.
+8. **QNB giyim:** `payWith families [miles-smiles-qnb]`.
 
 ## 9. Master data scope
 
-Only the original six card products exist: Wings Elite, Wings Black, Maximiles Black, Miles&Smiles QNB Private, TEB Özel Infinite and Crystal. Expanding the catalog is a separate, controlled step: master data + migration seed + `eligibility_master.v1.json` + crawler mapping + criteria rows (§6).
+(v1.5.0) No card product is special: the original six products (Wings Elite, Wings Black, Maximiles Black, Miles&Smiles QNB Private, TEB Özel Infinite, Crystal) are ordinary rows in the general bank → program → product model, next to banks that so far have only a bank row and a verified program (Garanti BBVA, Ziraat Bankası, Halkbank, VakıfBank) or only a bank row (DenizBank). Coverage is explicit per bank (web/coverage.js, `bank_coverage`). Adding products is a data change: master data + migration seed + `eligibility_master.v1.json` (generated by `tools/gen-eligibility-master.mjs`) + crawler source mapping + criteria rows (§6). See docs/MASTER_DATA_v1.5.md.
