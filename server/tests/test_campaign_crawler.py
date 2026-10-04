@@ -10,7 +10,10 @@ import campaign_crawler as cc
 from campaign_crawler import generic_parse, special_overrides, known_core_fallback, http_safe_url, discover_source, FetchResult
 
 
-def src(key,bank,cards): return {'key':key,'bank':bank,'card_products':cards}
+BANK_CODES={'QNB':'qnb','Akbank':'akbank','İş Bankası':'isbank','Yapı Kredi':'ykb','TEB':'teb'}
+# v1.5.0: the `cards` argument is ignored on purpose — sources no longer imply card eligibility (kept only so the old
+# call sites read the same). A test below proves the output is identical whatever is passed.
+def src(key,bank,cards=None): return {'key':key,'bank':bank,'bank_code':BANK_CODES.get(bank)}
 def wrap(title,text): return f'<html><h1>{title}</h1><div>{text}</div></html>'.encode()
 
 class CampaignCrawlerTests(unittest.TestCase):
@@ -26,7 +29,9 @@ class CampaignCrawlerTests(unittest.TestCase):
     def test_qnb_general_excludes_miles(self):
         b=wrap('Şarjda 500 TL ParaPuan','''QNB Bireysel Kredi Kartı ile 750 TL üzeri alışverişe 50 TL ParaPuan. Miles&Smiles QNB ve QNB Fix kredi kartları hariçtir. Kampanya 15 Eylül - 15 Ekim 2026 tarihleri arasında geçerlidir.''')
         c=generic_parse(src('qnb_card','QNB',['qnb-ms-private']),'https://www.qnbcard.com.tr/kampanyalar/sarj',b,date(2026,9,23))
-        self.assertIsNone(c)
+        # v1.5.0: kept in the global catalog, never applicable to the (explicitly excluded) Miles&Smiles QNB card
+        self.assertIsNotNone(c); self.assertEqual(c['cardProductIds'],[])
+        self.assertIn('miles-smiles-qnb', c['eligibilityResolution']['excluded'])
 
     def test_qnb_terminal_private_override(self):
         b=wrap('QNB Terminal Kadıköy Restoran Harcamalarında %10’dan Başlayan İndirim!', '''QNB Kredi Kartı ile 1 Temmuz-31 Aralık 2026 arasında seçili restoranlarda %10. QNB Private müşterilerine %20 indirim. İşlem başına en fazla 1.000 TL, aylık en fazla 2.000 TL indirim.''')
@@ -88,7 +93,10 @@ class CampaignCrawlerTests(unittest.TestCase):
         self.assertIsNotNone(c)
         b2=wrap('Giyimde chip-para', 'Kampanyaya bireysel Axess kartlar dahildir. Kampanyaya Wings, Free ve banka kartları dahil değildir. 1-30 Eylül 2026 tarihleri arasında geçerlidir.')
         c2=generic_parse(src('axess_general','Akbank',['akbank-wings-black']),'https://www.axess.com.tr/axess/kampanyalar/giyim',b2,date(2026,9,23))
-        self.assertIsNone(c2)
+        # v1.5.0: "Wings" wording targets the Wings FAMILY (not today's two products)
+        self.assertEqual(c['cardFamilies'],['wings']); self.assertEqual(c['cardProductIds'],[])
+        # v1.5.0: Wings explicitly excluded → kept in catalog, applicable to no Wings card
+        self.assertIsNotNone(c2); self.assertEqual(c2['cardProductIds'],[]); self.assertEqual(c2['cardFamilies'],[]); self.assertIn('wings', c2['eligibilityResolution']['excluded'])
 
     def test_teb_general_infinite_eligible(self):
         b=wrap('E-Ticaret Harcamalarınıza Toplam 1.050 TL Bonus!', 'Kampanyaya katılarak TEB Bireysel Kredi Kartlarınız ile 16-30 Eylül 2026 tarihleri arasında Amazon, Hepsiburada ve Trendyol web sitesi veya mobil uygulamalarından yapılacak her 3.500 TL ve üzeri alışverişlere 175 TL bonus, toplam 1.050 TL bonus verilecektir. Aynı gün aynı işyerinden yapılan harcamaların sadece ilki dahildir. CEPTETEB Mobil üzerinden kampanyaya katılın.')
@@ -99,7 +107,8 @@ class CampaignCrawlerTests(unittest.TestCase):
     def test_teb_general_bank_card_only_excluded(self):
         b=wrap('TEB Bireysel Banka Kartları ile 750 TL Nakit İade', 'TEB Bireysel Banka Kartları ile 1-30 Eylül 2026 tarihleri arasında market harcamalarına nakit iade.')
         c=generic_parse(src('teb_general','TEB',['teb-infinite']),'https://www.teb.com.tr/sizin-icin/debit-market-kampanyasi/',b,date(2026,9,23))
-        self.assertIsNone(c)
+        # v1.5.0: a debit-card campaign stays in the global catalog but never applies to a credit card product
+        self.assertIsNotNone(c); self.assertEqual(c['cardProductIds'],[])
 
     def test_generic_campaign_hub_is_rejected(self):
         b=wrap('Kampanyalar', 'Miles&Smiles QNB kampanyaları market seyahat akaryakıt e-ticaret sigorta indirim puan fırsatları. ' * 4)
@@ -237,15 +246,15 @@ class CampaignCrawlerTests(unittest.TestCase):
                 {"key":"s2","bank":"B2","card_products":["c2"],"fallback_urls":[],"listing_urls":[],"sitemap_urls":[]},
             ]
             urls={"s1":["https://x/s1"],"s2":["https://x/s2"]}
-            def discover(source): return urls[source['key']], []
+            def discover(source, today=None): return {"mechanisms":["listing_html"],"urls":urls[source['key']],"structured":{},"listing_candidates":1,"sitemap_candidates":0,"fallback_candidates":0,"official_count":None,"official_active_count":None,"api_items":0,"api_expired":0,"api_pages":None,"errors":[]}
             def fake_fetch(url, timeout=12): return FetchResult(url,'<html><h1>X</h1><p>kampanya indirim harcama 1.000 TL ve daha fazla yeterli metin olsun diye burada uzatıyoruz.</p></html>'.encode('utf-8'),'text/html')
-            def fake_parse(source,url,body,today):
+            def fake_parse(source,url,body,today,category_hint=None,card_tokens=None,structured=None):
                 if source['key']=='s2':
                     # İkinci kaynak işlenirken karar motorunun stable kataloğu hâlâ eski tam katalog olmalı.
                     stable=json.loads(catalog.read_text(encoding='utf-8')); self.assertEqual(stable['generatedAt'],'old')
                     stage=json.loads(staging.read_text(encoding='utf-8')); self.assertTrue(stage['meta']['partial'])
-                return {"id":f"{source['key']}-c","sourceUrl":url,"sourceKey":source['key'],"bank":source['bank'],"title":source['key'],"cardProductIds":source['card_products'],"categories":["all"],"merchantScope":{"kind":"all"},"status":"active","rewardRule":{"kind":"fixed","minSpend":0,"reward":1},"transactionRules":{},"rulesComplete":True,"rawTextDigest":source['key']}
-            with patch.object(cc,'CATALOG_FILE',catalog), patch.object(cc,'STAGING_FILE',staging), patch.object(cc,'STATUS_FILE',status), patch.object(cc,'RAW_DIR',raw), patch.object(cc,'load_config',return_value=sources), patch.object(cc,'discover_source',side_effect=discover), patch.object(cc,'fetch',side_effect=fake_fetch), patch.object(cc,'generic_parse',side_effect=fake_parse):
+                return {"id":f"{source['key']}-c","sourceUrl":url,"sourceKey":source['key'],"bank":source['bank'],"title":source['key'],"cardProductIds":[],"categories":["all"],"merchantScope":{"kind":"all"},"status":"active","rewardRule":{"kind":"fixed","minSpend":0,"reward":1},"transactionRules":{},"rulesComplete":True,"rawTextDigest":source['key']},"campaign"
+            with patch.object(cc,'CATALOG_FILE',catalog), patch.object(cc,'STAGING_FILE',staging), patch.object(cc,'STATUS_FILE',status), patch.object(cc,'RAW_DIR',raw), patch.object(cc,'load_config',return_value=sources), patch.object(cc,'discover',side_effect=discover), patch.object(cc,'fetch',side_effect=fake_fetch), patch.object(cc,'parse_detail',side_effect=fake_parse):
                 out=cc._refresh_catalog_impl(max_per_source=10)
             self.assertFalse(staging.exists())
             stable=json.loads(catalog.read_text(encoding='utf-8'))

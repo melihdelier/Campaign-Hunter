@@ -437,7 +437,7 @@
       },
       "catalogStatus": "invalid",
       "runtimeStatus": "invalid",
-      "errorContains": "cards and/or banks",
+      "errorContains": "cards, banks and/or families",
       "eligibleForProbe": false
     },
     {
@@ -991,6 +991,71 @@
       "runtimeStatus": "legacy",
       "errorContains": null,
       "eligibleForProbe": true
+    },
+    {
+      "name": "family-level payWith accepted (v1.5.0)",
+      "campaign": {
+        "cardProductIds": [],
+        "eligibilitySchemaVersion": 1,
+        "eligibilityRule": {
+          "payWith": {
+            "families": [
+              "teb-bonus-individual-credit"
+            ]
+          }
+        }
+      },
+      "catalogStatus": "valid",
+      "runtimeStatus": "valid",
+      "errorContains": null,
+      "eligibleForProbe": true
+    },
+    {
+      "name": "family with product exclusion accepted",
+      "campaign": {
+        "cardProductIds": [],
+        "eligibilitySchemaVersion": 1,
+        "eligibilityRule": {
+          "all": [
+            {
+              "payWith": {
+                "families": [
+                  "teb-bonus-individual-credit"
+                ]
+              }
+            },
+            {
+              "not": {
+                "payWith": {
+                  "cards": [
+                    "teb-infinite"
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      },
+      "catalogStatus": "valid",
+      "runtimeStatus": "valid",
+      "errorContains": null,
+      "eligibleForProbe": false
+    },
+    {
+      "name": "empty families rejected",
+      "campaign": {
+        "cardProductIds": [],
+        "eligibilitySchemaVersion": 1,
+        "eligibilityRule": {
+          "payWith": {
+            "families": []
+          }
+        }
+      },
+      "catalogStatus": "invalid",
+      "runtimeStatus": "invalid",
+      "errorContains": "non-empty array of codes",
+      "eligibleForProbe": false
     }
   ]
 }

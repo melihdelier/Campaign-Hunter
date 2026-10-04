@@ -252,11 +252,22 @@ class SupabaseRlsTests(unittest.TestCase):
                  from public.profile_option_criteria;""")
         bundled = sorted(cat['optionCriteria'], key=lambda r: (r['dimensionCode'], r['criteriaVersion'], r['optionCode']))
         self.assertEqual(crit, bundled)
+        # v1.5.0: bankalar (tamamı), kart programları, ürün → program, banka kapsamı birebir
+        self.assertEqual(set(db_banks), {b['code'] for b in cat['banks']})
+        progs = q("""select coalesce(json_agg(json_build_object('code',p.code,'bankCode',b.code,'name',p.name,'sourceUrl',p.source_url,
+                 'verifiedAt',to_char(p.verified_at at time zone 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),'sortOrder',p.sort_order) order by p.code),'[]')
+                 from public.card_programs p join public.banks b on b.id=p.bank_id;""")
+        self.assertEqual(progs, sorted([{k: p[k] for k in ('code', 'bankCode', 'name', 'sourceUrl', 'verifiedAt', 'sortOrder')} for p in cat['cardPrograms']], key=lambda p: p['code']))
+        prod_prog = {r['code']: r['programCode'] for r in q("select json_agg(json_build_object('code',code,'programCode',program_code)) from public.card_products;")}
+        self.assertEqual(prod_prog, {p['code']: p['programCode'] for p in cat['cardProducts']})
+        cov = q("""select json_agg(json_build_object('bankCode',b.code,'cardProducts',c.card_products,'profileDimensions',c.profile_dimensions,
+                 'coreBenefits',c.core_benefits,'campaigns',c.campaigns,'note',c.note) order by b.code) from public.bank_coverage c join public.banks b on b.id=c.bank_id;""")
+        self.assertEqual(cov, sorted(cat['bankCoverage'], key=lambda c: c['bankCode']))
 
     def test_migrations_007_008_are_repeatable(self):
         before = self.pg.psql('select (select count(*) from public.profile_dimension_options), (select count(*) from public.user_cards), (select count(*) from public.profiles);').stdout
         for m in MIGRATIONS:
-            if m.name.startswith(('007', '008', '009', '010')):
+            if m.name >= '007':  # tüm sonraki migration'lar SIRAYLA yeniden uygulanır (tekrar çalıştırılabilirlik)
                 self.pg.file(m)
         after = self.pg.psql('select (select count(*) from public.profile_dimension_options), (select count(*) from public.user_cards), (select count(*) from public.profiles);').stdout
         self.assertEqual(before, after)
@@ -304,7 +315,7 @@ class SupabaseRlsTests(unittest.TestCase):
         finally:
             self.pg.psql('revoke all on all tables in schema public from anon, authenticated;')
             for m in MIGRATIONS:
-                if m.name.startswith(('007', '008', '010')):
+                if m.name >= '007':
                     self.pg.file(m)
             self.pg.psql('grant select on table public.catalog_snapshots to anon, authenticated;')
 
@@ -472,6 +483,138 @@ class OptionCriteriaMigrationTests(unittest.TestCase):
         # iki sürümün de satırları korunur (geçmiş silinmez)
         self.assertEqual(self.pg.psql("select string_agg(distinct criteria_version, ',' order by criteria_version) from public.profile_option_criteria where dimension_code='maximiles_band';").stdout.strip(), 'v1,v2')
 
+
+
+@unittest.skipIf(PG_BIN is None and not os.environ.get('CI'), 'PostgreSQL bulunamadı')
+class MasterDataAndBankRequestTests(unittest.TestCase):
+    """v1.5.0 / migrations 011–012: genel ana veri, kapsam, "Bankam listede yok" istekleri."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.pg = PG(PG_BIN); cls.pg.start(); cls.pg.file(STUB)
+        for m in MIGRATIONS:
+            cls.pg.file(m)
+        cls.pg.psql(f"insert into auth.users(id,email) values ('{A}','a@example.com'),('{B}','b@example.com');")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.pg.stop()
+
+    def q(self, sql):
+        return self.pg.psql(sql).stdout.strip()
+
+    def canon_counts(self):
+        return self.q('select (select count(*) from public.banks)||\',\'||(select count(*) from public.card_products)||\',\'||(select count(*) from public.card_programs)||\',\'||(select count(*) from public.bank_coverage);')
+
+    def test_new_banks_exist_without_users_and_with_explicit_coverage(self):
+        self.assertEqual(self.q("select string_agg(code, ',' order by sort_order) from public.banks where code in ('garanti','ziraat','halkbank','vakifbank','denizbank');"),
+                         'garanti,ziraat,halkbank,vakifbank,denizbank')
+        self.assertEqual(self.q("select count(*) from public.card_products cp join public.banks b on b.id=cp.bank_id where b.code in ('garanti','ziraat','halkbank','vakifbank','denizbank');"), '0', 'no invented products')
+        self.assertEqual(self.q("select string_agg(b.code||':'||c.campaigns, ',' order by b.sort_order) from public.bank_coverage c join public.banks b on b.id=c.bank_id where b.code in ('garanti','denizbank');"),
+                         'garanti:coming,denizbank:none')
+        self.assertEqual(self.q("select count(*) from public.bank_coverage where campaigns='full' or card_products='full';"), '0', 'no bank claims full coverage')
+        self.assertEqual(self.q("select count(*) from public.card_programs p join public.banks b on b.id=p.bank_id where b.code='denizbank';"), '0', 'unverified program not created')
+        r = self.pg.psql("insert into public.bank_coverage(bank_id,card_products,profile_dimensions,core_benefits,campaigns) select id,'great','none','none','none' from public.banks where code='denizbank';", check=False)
+        self.assertNotEqual(r.returncode, 0, 'coverage values are machine-checked')
+
+    def test_master_data_read_only_for_users_and_hidden_from_anon(self):
+        for t in ('card_programs', 'bank_coverage'):
+            self.assertGreater(int(self.pg.as_user(A, f'select count(*) from public.{t};').out), 0)
+            self.assertNotEqual(self.pg.as_user(None, f'select count(*) from public.{t};', check=False).returncode, 0, f'anon {t}')
+            r = self.pg.as_user(A, f"delete from public.{t} returning 1;", check=False)
+            self.assertTrue(r.returncode != 0 or r.out == '', f'user cannot delete {t}')
+        r = self.pg.as_user(A, "insert into public.banks(code,name) values ('ing','ING');", check=False)
+        self.assertNotEqual(r.returncode, 0, 'users cannot create banks')
+
+    def test_selecting_a_bank_never_creates_master_data_and_is_per_user(self):
+        before = self.canon_counts()
+        for u in (A, B):  # iki kullanıcı aynı bankayı bağımsız seçer (kart ürünü olmayan banka da seçilebilir)
+            self.pg.as_user(u, f"insert into public.user_banks(user_id, bank_id) select '{u}', id from public.banks where code='garanti' on conflict do nothing;")
+        self.assertEqual(self.canon_counts(), before)
+        self.assertEqual(self.pg.as_user(A, "select count(*) from public.user_banks ub join public.banks b on b.id=ub.bank_id where b.code='garanti';").out, '1')
+        self.assertEqual(self.pg.as_user(B, f"select count(*) from public.user_banks where user_id='{A}';").out, '0', 'isolation')
+        self.pg.as_user(A, "delete from public.user_banks where bank_id=(select id from public.banks where code='garanti');")
+        self.assertEqual(self.pg.as_user(B, "select count(*) from public.user_banks ub join public.banks b on b.id=ub.bank_id where b.code='garanti';").out, '1', "A's removal does not affect B")
+
+    def test_bank_support_requests_rls_dedupe_and_aggregation(self):
+        before = self.canon_counts()
+        self.pg.as_user(A, f"insert into public.bank_support_requests(user_id, requested_name) values ('{A}','ING Bank');")
+        # aynı kullanıcı aynı bankayı farklı yazımla tekrar ister → çift kayıt yok
+        r = self.pg.as_user(A, f"insert into public.bank_support_requests(user_id, requested_name) values ('{A}','ing') on conflict (user_id, normalized_key) do nothing returning 1;")
+        self.assertEqual(r.out, '')
+        self.pg.as_user(B, f"insert into public.bank_support_requests(user_id, requested_name) values ('{B}','  İNG   bankası ');")
+        self.pg.as_user(B, f"insert into public.bank_support_requests(user_id, requested_name) values ('{B}','Kuveyt Türk Katılım Bankası A.Ş.');")
+        self.assertEqual(self.canon_counts(), before, 'requests never mutate canonical master data')
+        # RLS: yalnız kendi satırları; başkası adına ekleme yok; anonim yok
+        self.assertEqual(self.pg.as_user(A, 'select count(*) from public.bank_support_requests;').out, '1')
+        self.assertEqual(self.pg.as_user(B, f"select count(*) from public.bank_support_requests where user_id='{A}';").out, '0')
+        self.assertNotEqual(self.pg.as_user(B, f"insert into public.bank_support_requests(user_id, requested_name) values ('{A}','X Bank');", check=False).returncode, 0)
+        self.assertNotEqual(self.pg.as_user(None, 'select count(*) from public.bank_support_requests;', check=False).returncode, 0)
+        r = self.pg.as_user(B, f"delete from public.bank_support_requests where user_id='{A}' returning 1;")
+        self.assertEqual(r.out, '')
+        # istemci anahtarı belirleyemez (generated column)
+        self.assertNotEqual(self.pg.as_user(A, f"insert into public.bank_support_requests(user_id, requested_name, normalized_key) values ('{A}','Z Bank','garanti');", check=False).returncode, 0)
+        # toplama: yalnız service_role (burada postgres) görür; authenticated özet görünümünü okuyamaz
+        self.assertNotEqual(self.pg.as_user(A, 'select count(*) from public.bank_support_request_summary;', check=False).returncode, 0)
+        rows = dict(l.split('|') for l in self.q("select normalized_key||'|'||request_count from public.bank_support_request_summary order by 1;").splitlines())
+        self.assertEqual(rows, {'ing': '2', 'kuveyt-turk-katilim': '1'})
+
+    def test_request_key_matches_client_normalizer(self):
+        samples = ['ING Bank', 'İNG BANKASI', 'Kuveyt Türk', 'Türkiye Finans Katılım Bankası A.Ş.', 'Şekerbank T.A.Ş.', 'Odeabank', 'QNB  ']
+        js = subprocess.run(['node', '-e', "import('./bank-requests.js').then(m=>process.stdout.write(JSON.stringify(" + json.dumps(samples) + ".map(m.normalizeBankRequestName))))"],
+                            cwd=ROOT / 'web', capture_output=True, text=True)
+        if js.returncode != 0:
+            self.skipTest('node not available')
+        expected = json.loads(js.stdout)
+        u = str(uuid.uuid4())
+        self.pg.psql(f"insert into auth.users(id,email) values ('{u}','n@example.com');")
+        got = []
+        for x in samples:  # gerçek generated column (her örnek ayrı satır; unique çakışmasını önlemek için sırayla ekle/sil)
+            lit = x.replace("'", "''")
+            got.append(self.q(f"insert into public.bank_support_requests(user_id, requested_name) values ('{u}','{lit}') returning normalized_key;").splitlines()[0])
+            self.pg.psql(f"delete from public.bank_support_requests where user_id='{u}';")
+        self.assertEqual(got, expected)
+
+    def test_no_sensitive_columns_in_new_tables(self):
+        cols = self.q("select string_agg(table_name||'.'||column_name, ',') from information_schema.columns where table_schema='public' and table_name in ('bank_support_requests','card_programs','bank_coverage');")
+        self.assertNotRegex(cols, r'card_number|pan|cvv|cvc|password|amount|balance|asset')
+
+
+@unittest.skipIf(PG_BIN is None and not os.environ.get('CI'), 'PostgreSQL bulunamadı')
+class V15UpgradePreservesUsersTests(unittest.TestCase):
+    """Üretim (008–010 uygulanmış, kullanıcı verisi var) → 011/012: kullanıcı verisi korunur."""
+
+    def test_upgrade_preserves_profiles_cards_attributes_and_confirmations(self):
+        pg = PG(PG_BIN); pg.start(); pg.file(STUB)
+        try:
+            for m in MIGRATIONS:
+                if m.name < '011':
+                    pg.file(m)
+            pg.psql(f"insert into auth.users(id,email) values ('{A}','a@example.com');")
+            pg.as_user(A, f"""insert into public.profiles(user_id, onboarding_completed_at) values ('{A}', now());
+                insert into public.user_banks(user_id, bank_id) select '{A}', id from public.banks where code in ('akbank','ykb');
+                insert into public.user_cards(user_id, card_product_id) select '{A}', id from public.card_products where code in ('akbank-wings-black','ykb-crystal');
+                insert into public.user_profile_attributes(user_id,dimension_code,option_code,criteria_version,confirmed_at) values
+                  ('{A}','wings_tier','black_plus',null,'2026-10-02T09:00:00Z'),('{A}','crystal_band','band_3','v1','2026-10-02T09:00:00Z');""")
+            snap = lambda: pg.psql(f"""select (select string_agg(cp.code, ',' order by cp.code) from public.user_cards uc join public.card_products cp on cp.id=uc.card_product_id where uc.user_id='{A}')
+                ||'|'||(select string_agg(dimension_code||'='||option_code||'@'||coalesce(criteria_version,'-')||'@'||confirmed_at, ',' order by dimension_code) from public.user_profile_attributes where user_id='{A}')
+                ||'|'||(select count(*) from public.user_banks where user_id='{A}')||'|'||(select onboarding_completed_at is not null from public.profiles where user_id='{A}');""").stdout.strip()
+            before = snap()
+            for m in MIGRATIONS:
+                if m.name >= '011':
+                    pg.file(m)
+            self.assertEqual(snap(), before)
+            self.assertEqual(pg.psql("select label||'|'||engine_label from public.profile_dimension_options where dimension_code='wings_tier' and code='black_plus';").stdout.strip(),
+                             'Black Plus|Black Plus / 2 milyon TL+', 'display name cleaned, legacy engine key kept for cached clients')
+            self.assertEqual(pg.psql("select label from public.profile_dimension_options where dimension_code='teb_tier' and code='ultra';").stdout.strip(), 'Ultra')
+            self.assertEqual(pg.psql("select program_code from public.card_products where code='akbank-wings-black';").stdout.strip(), 'wings')
+            # tekrar uygulanabilir
+            for m in MIGRATIONS:
+                if m.name >= '011':
+                    pg.file(m)
+            self.assertEqual(snap(), before)
+        finally:
+            pg.stop()
 
 if __name__ == '__main__':
     unittest.main()

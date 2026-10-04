@@ -44,8 +44,12 @@ from urllib.request import Request, urlopen
 
 try:  # works both as `python server/catalog_guard.py` and as an imported module in tests
     import eligibility_schema as es
+    import source_registry
+    import card_eligibility
 except ImportError:  # pragma: no cover
     from server import eligibility_schema as es
+    from server import source_registry
+    from server import card_eligibility
 
 ROOT = Path(__file__).resolve().parent
 DATA_DIR = ROOT / "data"
@@ -104,10 +108,18 @@ def gen_at(c) -> str:
 
 
 def source_keys() -> list[str]:
+    """Only crawlable (enabled + adapter) sources are judged for health; disabled registry rows never are."""
     try:
-        return [s["key"] for s in json.loads(CONFIG_FILE.read_text(encoding="utf-8"))]
+        return [s["key"] for s in source_registry.active_sources(json.loads(CONFIG_FILE.read_text(encoding="utf-8")))]
     except Exception:
         return []
+
+
+def bank_code_by_source() -> dict:
+    try:
+        return {s["key"]: s.get("bank_code") for s in json.loads(CONFIG_FILE.read_text(encoding="utf-8"))}
+    except Exception:
+        return {}
 
 
 def not_expired(c: dict, today: str) -> bool:
@@ -141,6 +153,21 @@ def pages_catalog_url() -> str:
     return ""
 
 
+# v1.5.0: GitHub Actions raporlaması (adım özeti + ::error/::warning açıklamaları) yalnız GERÇEK kapı çalışmasında.
+# Birim testleri, bilinçli olarak reddedilen/bootstrap senaryolarını çalıştırırken CATALOG_GUARD_ACTIONS_REPORTING=0
+# ayarlar; böylece başarılı test işinin özeti "rejected" gibi üretim mesajlarıyla kirlenmez. Üretimde değişken yoktur.
+ACTIONS_REPORTING_ENV = "CATALOG_GUARD_ACTIONS_REPORTING"
+
+
+def actions_reporting() -> bool:
+    return os.environ.get(ACTIONS_REPORTING_ENV, "1").strip() != "0"
+
+
+def annotate(level: str, message: str) -> None:
+    """Workflow command in production; plain log line when Actions reporting is disabled (tests)."""
+    print(f"::{level}::{message}" if actions_reporting() else f"{level.upper()}: {message}")
+
+
 def gh_output(**kv) -> None:
     path = os.environ.get("GITHUB_OUTPUT")
     if path:
@@ -150,6 +177,8 @@ def gh_output(**kv) -> None:
 
 
 def gh_summary(text: str) -> None:
+    if not actions_reporting():
+        return
     path = os.environ.get("GITHUB_STEP_SUMMARY")
     if path:
         with open(path, "a", encoding="utf-8") as f:
@@ -242,6 +271,13 @@ def evaluate(new: dict | None, lkg: dict | None, crawl_ok: bool, today: str | No
         if lkg_bad:
             report["lkgInvalidEligibility"] = [{k: b[k] for k in ("id", "sourceKey", "errors")} for b in lkg_bad]
             lkg = {**lkg, "campaigns": lkg_keep}
+    # v1.5.0 (after the schema check, so invalid records are dropped, never "sanitised"): LKG records written before the per-campaign eligibility model carry SOURCE-assumed cards; they are
+    # re-derived from their own text before they can be restored (never re-published with the old assumption).
+    if is_valid_catalog(lkg):
+        bank_by_src = bank_code_by_source()
+        normalized = [card_eligibility.normalize_legacy_record(c, bank_by_src) for c in lkg["campaigns"]]
+        if any(a is not b for a, b in zip(normalized, lkg["campaigns"])):
+            lkg = {**lkg, "campaigns": normalized}
     have_lkg = is_valid_catalog(lkg)
 
     def reject(reason: str):
@@ -305,6 +341,17 @@ def evaluate(new: dict | None, lkg: dict | None, crawl_ok: bool, today: str | No
             info["status"] = "never_healthy"
         report["sources"][k] = info
 
+    # v1.5.0 completeness: the crawler's per-source evidence. LKG equality is NOT completeness — a source whose fresh count
+    # equals its baseline is still reported incomplete when its own discovery/parse evidence shows a gap.
+    reports_by = {r.get("key"): r for r in ((new.get("meta") or {}).get("source_reports") or []) if isinstance(r, dict)}
+    report["incompleteSources"] = []
+    for k, info in report["sources"].items():
+        comp = (reports_by.get(k) or {}).get("completeness")
+        if comp:
+            info["completeness"] = comp
+            if comp.get("status") == "incomplete":
+                report["incompleteSources"].append(k)
+
     total_base = sum(len(v) for v in base_by.values())
     total_fresh = len(fresh)
     report["totals"] = {"baseline": total_base, "fresh": total_fresh}
@@ -357,13 +404,19 @@ def evaluate(new: dict | None, lkg: dict | None, crawl_ok: bool, today: str | No
         report["verdict"] = "repaired"
         report["reasons"].append("Önceden sağlıklı kaynak(lar) sıfır/ciddi düşüş verdi; bu kaynaklar için son başarılı kayıtlar korundu: " + ", ".join(degraded))
 
+    if report["incompleteSources"]:
+        report["reasons"].append("Tamlık kanıtı eksik kaynak(lar) (aday/çözümlenen farkı; LKG eşitliği tamlık sayılmaz): "
+                                 + ", ".join(report["incompleteSources"]))
     final = dict(new)
     final["campaigns"] = sorted(final_campaigns, key=lambda c: (c.get("bank", ""), c.get("endDate") or "9999-99-99", c.get("title", "")))
     meta = dict(new.get("meta") or {})
     meta["campaign_count"] = len(final["campaigns"])
+    if meta.get("sourceRegistry"):
+        meta["sourceRegistry"] = source_registry.apply_guard_status(meta["sourceRegistry"], report, (lkg.get("meta") or {}).get("sourceRegistry"))
     meta["guard"] = {"verdict": report["verdict"], "baselineGeneratedAt": report["baselineGeneratedAt"],
                      "repairedSources": [r["key"] for r in report["repairedSources"]], "reasons": report["reasons"],
-                     "invalidEligibility": [e["id"] for e in report["invalidEligibility"]]}
+                     "invalidEligibility": [e["id"] for e in report["invalidEligibility"]],
+                     "incompleteSources": list(report.get("incompleteSources") or [])}
     final["meta"] = meta
     return final, report
 
@@ -386,8 +439,20 @@ def cmd_evaluate(crawl_outcome: str) -> int:
     lines = [f"### Katalog kalite kapısı: `{report['verdict']}`", ""]
     lines += [f"- {r}" for r in report["reasons"]] or ["- Sorun yok."]
     if report.get("sources"):
-        lines += ["", "| Kaynak | Önceki | Taze | Durum |", "|---|---|---|---|"]
-        lines += [f"| {k} | {v['baseline']} | {v['fresh']} | {v['status']} |" for k, v in report["sources"].items()]
+        lines += ["", "| Kaynak | Önceki | Taze | Durum | Tamlık |", "|---|---|---|---|---|"]
+        lines += [f"| {k} | {v['baseline']} | {v['fresh']} | {v['status']} | {(v.get('completeness') or {}).get('status', '-')}/{(v.get('completeness') or {}).get('confidence', '-')} |" for k, v in report["sources"].items()]
+    src_reports = ((new or {}).get("meta") or {}).get("source_reports") or []
+    if src_reports:
+        lines += ["", "**Kaynak tamlığı (bu tarama; LKG eşitliği tamlık kanıtı değildir):**", "",
+                  "| Kaynak | Yöntem | Aday | Detay URL | Aktif | Çözülen | Kısmi | Çözülemeyen/inceleme | Süresi dolmuş/ret | Ayrıştırma hatası | Resmi sayı | Güven |",
+                  "|---|---|---|---|---|---|---|---|---|---|---|---|"]
+        for r in src_reports:
+            comp = r.get("completeness") or {}
+            rejected = sum((r.get("rejected_page_kinds") or {}).values())
+            lines.append(f"| {r.get('key')} | {r.get('mechanism', '-')} | {r.get('listing_candidates', 0) + r.get('sitemap_candidates', 0)} | "
+                         f"{r.get('discovered_detail_urls', '-')} | {r.get('active', '-')} | {r.get('resolved', 0)} | {r.get('partial', 0)} | "
+                         f"{r.get('unresolved', 0) + r.get('needs_review', 0)} | {r.get('expired', 0)}/{rejected} | {r.get('parse_errors', 0)} | "
+                         f"{r.get('official_count') if r.get('official_count') is not None else '-'} | {comp.get('status', '-')}/{comp.get('confidence', '-')} |")
     if report.get("invalidEligibility"):
         lines += ["", "**Geçersiz uygunluk kuralı (yayınlanmadı):**"]
         lines += [f"- `{e['id']}` ({e['sourceKey']}): {'; '.join(e['errors'][:3])}" for e in report["invalidEligibility"]]
@@ -396,9 +461,9 @@ def cmd_evaluate(crawl_outcome: str) -> int:
         lines += [f"- `{w['id']}`: {'; '.join(w['warnings'][:3])}" for w in report["eligibilityWarnings"]]
     gh_summary("\n".join(lines))
     if report["verdict"] == "rejected":
-        print(f"::error::Katalog kalite kapısı yeni taramayı reddetti: {' '.join(report['reasons'])}")
+        annotate("error", f"Katalog kalite kapısı yeni taramayı reddetti: {' '.join(report['reasons'])}")
     elif report["verdict"] in {"repaired", "bootstrap"}:
-        print(f"::warning::Katalog onarıldı: {' '.join(report['reasons'])}")
+        annotate("warning", f"Katalog onarıldı: {' '.join(report['reasons'])}")
     return 0
 
 
